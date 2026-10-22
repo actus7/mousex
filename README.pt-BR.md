@@ -74,7 +74,7 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 
 ### Atualizar e desinstalar
 
-- **Atualizar:** execute o mesmo comando de instalação de novo. Os pareamentos e o layout de telas são mantidos.
+- **Atualizar:** é automático. Cada computador procura uma versão nova uma vez por dia e instala sozinho, mas só se ela tiver uma assinatura válida do MouseX. Os pareamentos e o layout de telas são mantidos. Para travar a versão, ponha `"auto_update": false` no `config.json` da pasta de dados; para atualizar na hora, rode `mousex update`.
 - **Desinstalar no Windows:** **Configurações → Aplicativos → MouseX**, ou execute `"C:\Program Files\MouseX\mousex.exe" uninstall` em um terminal elevado.
 - **Desinstalar no macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
 

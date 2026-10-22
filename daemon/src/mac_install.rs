@@ -75,6 +75,7 @@ pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
         role: Role::Client,
         machine: machine.clone(),
         server_fingerprint: previous.as_ref().and_then(|c| c.server_fingerprint.clone()),
+        auto_update: previous.as_ref().is_none_or(|c| c.auto_update),
         remap_modifiers: previous.is_none_or(|c| c.remap_modifiers),
     };
     config.save(&data)?;

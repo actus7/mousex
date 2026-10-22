@@ -239,10 +239,10 @@ The log file is `mousex.log`. Use the tray's **Open log** item, or `mousex statu
 | Autostart | Scheduled task `MouseX`, at logon, elevated | LaunchAgent `com.mousex.agent` |
 | Firewall | Rule `MouseX`, UDP 41414 and 41415, remote `localsubnet` | Not applicable |
 | Permission | None extra | Accessibility for `mousex-agent` |
-| Update | Run the installer again | Run the installer again |
+| Update | Task `MouseX Update` as SYSTEM, daily and 10 min after boot | The agent runs `mousex update` 10 min after start, then every 24 h |
 | Uninstall | Settings → Apps, or `mousex uninstall` | `mousex uninstall` |
 
-Updates keep pairings, the layout, and the identity, so already-paired machines reconnect without a new code.
+Updates keep pairings, the layout, and the identity, so already-paired machines reconnect without a new code. `mousex update` finds the newest tag through the `/releases/latest` redirect, downloads the package, `SHA256SUMS` and `SHA256SUMS.sig` with the system `curl`, checks the Ed25519 signature (tag + sums) and the hash, unpacks with the system `tar`, swaps each binary keeping a `.old` copy, and runs `mousex version` on the new one. If that fails the `.old` files come back. On macOS the new binaries are re-signed with the local identity before the agent restarts.
 
 ## Design decisions
 

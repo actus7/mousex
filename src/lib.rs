@@ -6,6 +6,7 @@ pub mod net;
 pub mod pairing;
 pub mod proto;
 pub mod router;
+pub mod update;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

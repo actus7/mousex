@@ -19,6 +19,13 @@ pub struct Config {
     pub server_fingerprint: Option<String>,
     /// Troca Ctrl→Cmd etc. ao controlar um Mac (usado pelo cliente Mac).
     pub remap_modifiers: bool,
+    /// Instala sozinho as releases novas e assinadas. `false` trava a versão (ambiente corporativo).
+    #[serde(default = "enabled")]
+    pub auto_update: bool,
+}
+
+fn enabled() -> bool {
+    true
 }
 
 /// Pasta de dados: identidade, allowlist, layout, cache e log.
@@ -79,6 +86,7 @@ mod tests {
             machine: "win2".into(),
             server_fingerprint: Some("ab".into()),
             remap_modifiers: true,
+            auto_update: true,
         };
         config.save(&dir).expect("salvar");
         let loaded = Config::load(&dir).expect("carregar");
@@ -87,5 +95,14 @@ mod tests {
             (Role::Client, "win2", Some("ab"), true)
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn config_da_1_0_sem_o_campo_vem_com_atualizacao_ligada() {
+        let old = r#"{"role":"Client","machine":"mac","server_fingerprint":null,"remap_modifiers":true}"#;
+        let config: Config = serde_json::from_str(old).expect("config 1.0");
+        assert!(config.auto_update);
+        let off: Config = serde_json::from_str(&old.replace("}", r#","auto_update":false}"#)).expect("desligada");
+        assert!(!off.auto_update);
     }
 }

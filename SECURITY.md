@@ -7,7 +7,7 @@
 | 1.0.x | ✅ |
 | Older | ❌ |
 
-Security fixes go into the latest release. Update by running the install command again (see the [README](README.md)).
+Security fixes go into the latest release, which every installation picks up by itself within a day (see [Signed automatic updates](#4-tampered-update)).
 
 ## Reporting a vulnerability
 
@@ -67,6 +67,19 @@ A user is tricked into confirming a code that belongs to an attacker, or a devic
 - The dialog shows the name and the code of the other device. Confirm only if the same code appears on the other machine.
 
 **Known limit:** version 1.0 has no screen or command to revoke a paired device yet. Removing a device means editing `allowlist.json` in the data folder (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)). Adding a revoke command is on the roadmap.
+
+### 4. Tampered update
+
+Someone serves a modified MouseX package, or replays an old release with a known bug as if it were new.
+
+**Mitigations**
+
+- Every release has a `SHA256SUMS.sig`: an Ed25519 signature over the release tag plus `SHA256SUMS`. The public key is built into MouseX (`src/update.rs`); the private key is only in the repository's Actions secrets and with the maintainer.
+- Automatic updates install nothing unless the signature is valid **and** the package hash matches. Because the tag is part of the signed text, an old release cannot pass as a newer one, and only versions higher than the running one are installed.
+- Downloads use HTTPS only (`curl --proto =https --proto-redir =https --tlsv1.2`). On Windows the update runs as SYSTEM and stages files inside `Program Files\MouseX`, which only administrators can write.
+- If the new binary does not start and report the expected version, the previous files are restored.
+
+**Known limit:** whoever holds the signing key can ship an update to every installation. Set `"auto_update": false` in `config.json` to take updates manually.
 
 ## Data and privacy
 

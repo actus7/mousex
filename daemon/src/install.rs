@@ -7,7 +7,9 @@ use std::{
     time::Duration,
 };
 
-const TASK: &str = "MouseX";
+pub(crate) const TASK: &str = "MouseX";
+/// Atualização automática: roda como SYSTEM para gravar em Program Files sem UAC.
+const UPDATE_TASK: &str = "MouseX Update";
 const FIREWALL_RULE: &str = "MouseX";
 const COPY_ATTEMPTS: u32 = 20;
 const CLI: &str = "mousex.exe";
@@ -49,7 +51,7 @@ pub fn setup_plan(existing: Option<Config>, computer: &str) -> SetupPlan {
     }
 }
 
-const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MouseX";
+pub(crate) const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MouseX";
 
 /// Valores da entrada em Configurações → Aplicativos: (nome, tipo do registro, valor).
 fn uninstall_entry(dir: &Path) -> Vec<(&'static str, &'static str, String)> {
@@ -165,6 +167,44 @@ pub fn task_xml(exe: &Path, user: &str) -> String {
 </Task>
 "#
     )
+}
+
+/// Todo dia (hora sorteada na janela de 4 h, para não baterem todos juntos no GitHub) e 10 min após ligar.
+pub fn update_task_xml(cli: &Path) -> String {
+    let cli = escape(&cli.display().to_string());
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>MouseX: automatic updates (signed releases only)</Description></RegistrationInfo>
+  <Triggers>
+    <BootTrigger><Enabled>true</Enabled><Delay>PT10M</Delay></BootTrigger>
+    <CalendarTrigger><StartBoundary>2026-01-01T12:00:00</StartBoundary><Enabled>true</Enabled><RandomDelay>PT4H</RandomDelay><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>
+  </Triggers>
+  <Principals><Principal id="System"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <Enabled>true</Enabled>
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="System"><Exec><Command>{cli}</Command><Arguments>update</Arguments></Exec></Actions>
+</Task>
+"#
+    )
+}
+
+/// schtasks lê XML em UTF-16 LE com BOM.
+fn create_task(name: &str, xml: &str) -> Result<(), Box<dyn Error>> {
+    let path = std::env::temp_dir().join("mousex-task.xml");
+    let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain(xml.encode_utf16().flat_map(u16::to_le_bytes)).collect();
+    std::fs::write(&path, utf16)?;
+    let created = command("schtasks", &["/Create", "/TN", name, "/XML", &path.display().to_string(), "/F"]);
+    let _ = std::fs::remove_file(&path);
+    created?;
+    Ok(())
 }
 
 fn command(program: &str, args: &[&str]) -> Result<String, String> {
@@ -317,16 +357,12 @@ pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
         role,
         machine: machine.clone(),
         server_fingerprint,
+        auto_update: previous.as_ref().is_none_or(|c| c.auto_update),
         remap_modifiers: previous.is_none_or(|c| c.remap_modifiers),
     };
     config.save(&data)?;
-    // schtasks lê XML em UTF-16 LE com BOM.
-    let xml_path = std::env::temp_dir().join("mousex-task.xml");
-    let utf16: Vec<u8> =
-        [0xFF, 0xFE].into_iter().chain(task_xml(&exe, &user).encode_utf16().flat_map(u16::to_le_bytes)).collect();
-    std::fs::write(&xml_path, utf16)?;
-    command("schtasks", &["/Create", "/TN", TASK, "/XML", &xml_path.display().to_string(), "/F"])?;
-    let _ = std::fs::remove_file(&xml_path);
+    create_task(TASK, &task_xml(&exe, &user))?;
+    create_task(UPDATE_TASK, &update_task_xml(&dir.join(CLI)))?;
     let _ = command("netsh", &["advfirewall", "firewall", "delete", "rule", &format!("name={FIREWALL_RULE}")]);
     command(
         "netsh",
@@ -379,6 +415,7 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
     }
     let _ = command("schtasks", &["/End", "/TN", TASK]);
     let _ = command("schtasks", &["/Delete", "/TN", TASK, "/F"]);
+    let _ = command("schtasks", &["/Delete", "/TN", UPDATE_TASK, "/F"]);
     let _ = command("netsh", &["advfirewall", "firewall", "delete", "rule", &format!("name={FIREWALL_RULE}")]);
     let _ = command("reg", &["delete", UNINSTALL_KEY, "/f"]);
     std::thread::sleep(Duration::from_millis(500));
@@ -441,9 +478,22 @@ mod tests {
     #[test]
     fn assistente_atualiza_instalacao_existente_ou_pergunta() {
         assert_eq!(setup_plan(None, "PC"), SetupPlan::Ask { machine: "PC".into() });
-        let existing =
-            Config { role: Role::Server, machine: "sala".into(), server_fingerprint: None, remap_modifiers: true };
+        let existing = Config {
+            role: Role::Server,
+            machine: "sala".into(),
+            server_fingerprint: None,
+            remap_modifiers: true,
+            auto_update: true,
+        };
         assert_eq!(setup_plan(Some(existing), "PC"), SetupPlan::Update { role: Role::Server, machine: "sala".into() });
+    }
+
+    #[test]
+    fn tarefa_de_atualizacao_roda_como_system_e_chama_update() {
+        let xml = update_task_xml(Path::new(r"C:\Program Files\MouseX\mousex.exe"));
+        assert!(xml.contains("<UserId>S-1-5-18</UserId>"), "SYSTEM grava em Program Files sem UAC");
+        assert!(xml.contains(r"<Command>C:\Program Files\MouseX\mousex.exe</Command><Arguments>update</Arguments>"));
+        assert!(xml.contains("<RandomDelay>PT4H</RandomDelay>") && xml.contains("<BootTrigger>"));
     }
 
     #[test]

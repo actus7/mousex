@@ -156,6 +156,28 @@ jobs:
           sha256sum MouseX-windows-x64.zip MouseX-macos-universal.tar.gz install.ps1 install.sh > SHA256SUMS
           cat SHA256SUMS
 
+      # Auto-update installs only what this key signed. The tag is part of the signed text, so an
+      # old release cannot be replayed as a new one. Public key: src/update.rs (RELEASE_PUBLIC_KEY).
+      - name: Sign checksums
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.MOUSEX_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::secret MOUSEX_RELEASE_SIGNING_KEY is missing; refusing to publish an unsigned release"
+            exit 1
+          fi
+          umask 077
+          key="$RUNNER_TEMP/release-key.pem"
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          { printf 'MouseX %s\n' "$GITHUB_REF_NAME"; cat dist/SHA256SUMS; } > "$RUNNER_TEMP/signed.txt"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in "$RUNNER_TEMP/signed.txt" -out dist/SHA256SUMS.sig
+          openssl pkey -in "$key" -pubout -out "$RUNNER_TEMP/release-key.pub"
+          openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/release-key.pub" -rawin \
+            -in "$RUNNER_TEMP/signed.txt" -sigfile dist/SHA256SUMS.sig
+          rm -f "$key"
+
       - name: Release notes from CHANGELOG.md
         shell: bash
         run: |
@@ -190,4 +212,5 @@ jobs:
             dist/MouseX-macos-universal.tar.gz \
             dist/install.ps1 \
             dist/install.sh \
-            dist/SHA256SUMS
+            dist/SHA256SUMS \
+            dist/SHA256SUMS.sig

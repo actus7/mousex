@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Automatic updates: every computer installs new releases by itself, once a day, only when they carry a valid Ed25519 signature (`SHA256SUMS.sig`). Failed updates roll back. Turn off with `"auto_update": false` in `config.json`; update now with `mousex update`. Installations of 1.0.0 need one manual update to get this.
+- `mousex version` prints the version.
 - Screens of the main computer can be dragged in **Arrange screens…**; on save, Windows is rearranged to match, so the arrangement no longer has to be repeated in Windows Settings.
 
 ### Fixed

@@ -16,6 +16,7 @@ pub(crate) mod platform;
 pub(crate) mod platform;
 #[cfg(windows)]
 pub(crate) mod server;
+pub(crate) mod update;
 
 use config::{Config, Role, data_dir};
 use mousex_core::{
@@ -54,6 +55,8 @@ usage:
   mousex install --role server|client [--machine NAME]  install or update
   mousex uninstall                                      remove (pairings and layout are kept)
   mousex status                                         show configuration, service state and recent log
+  mousex update                                         install the newest signed release now, if any
+  mousex version                                        print the version
   mousex run                                            run the agent in the foreground";
 
 /// `mousex.exe`: comandos de terminal (console normal, saída visível, o terminal espera).
@@ -65,6 +68,11 @@ pub fn cli_main() {
         Some("install") => install::install(&args[1..]),
         Some("uninstall") => install::uninstall(),
         Some("status") => install::status(),
+        Some("update") => update::update(),
+        Some("version") => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         // Duplo clique no Explorer (sem argumentos) abre o assistente de instalação.
         #[cfg(windows)]
         None | Some("setup") => install::setup(),
@@ -82,6 +90,8 @@ pub fn agent_main() {
     if !platform::prepare() {
         log("warning: platform setup incomplete (DPI on Windows, Accessibility on Mac)");
     }
+    #[cfg(target_os = "macos")]
+    update::schedule();
     if let Err(error) = run() {
         log(&format!("fatal error: {error}"));
         std::process::exit(1);
