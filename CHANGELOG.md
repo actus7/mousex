@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-22
+
 ### Added
 
 - Automatic updates: every computer installs new releases by itself, once a day, only when they carry a valid Ed25519 signature (`SHA256SUMS.sig`). Failed updates roll back. Turn off with `"auto_update": false` in `config.json`; update now with `mousex update`. Installations of 1.0.0 need one manual update to get this.
@@ -70,5 +72,6 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/actus7/mousex/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/actus7/mousex/releases/tag/v1.0.0
