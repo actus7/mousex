@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "mousex"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "dirs",
  "mousex-core",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ed25519-dalek",
  "mdns-sd",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-native"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "png",
  "windows-sys 0.59.0",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-platform-macos"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "core-foundation",
  "core-graphics",

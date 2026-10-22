@@ -112,7 +112,15 @@ install_mousex() {
 
 explain_next_steps() {
     local settings="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    local log="$HOME/Library/Application Support/mousex/mousex.log"
     say ""
+    # The agent logs this warning when it starts without Accessibility. A stable signature keeps the
+    # permission across updates, so most updates need nothing more.
+    sleep 3
+    if [ -f "$log" ] && ! tail -n 5 "$log" | grep -q "platform setup incomplete"; then
+        say "MouseX is installed and running. Nothing else to do."
+        return 0
+    fi
     say "MouseX is installed. One manual step remains:"
     say "  1. Allow mousex-agent in System Settings > Privacy & Security > Accessibility."
     say "     The settings page is opening now."
@@ -124,7 +132,8 @@ explain_next_steps() {
 main() {
     require_environment
 
-    local base="$REPO_URL/latest/download" tmp pkg
+    # tmp is global on purpose: the EXIT trap runs after main returns, when locals are gone.
+    local base="$REPO_URL/latest/download" pkg
     if [ -n "${MOUSEX_VERSION:-}" ]; then
         [[ "$MOUSEX_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] \
             || die "MOUSEX_VERSION '$MOUSEX_VERSION' is not a tag such as v1.0.0."

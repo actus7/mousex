@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-22
+
+### Fixed
+
+- macOS installer: no more `tmp: unbound variable` at the end, and the temporary folder is removed.
+- macOS installer: asks for Accessibility only when the agent actually lacks it (updates keep the permission).
+
 ## [1.1.0] - 2026-10-22
 
 ### Added
@@ -72,6 +79,7 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/actus7/mousex/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/actus7/mousex/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/actus7/mousex/releases/tag/v1.0.0
