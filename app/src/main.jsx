@@ -36,10 +36,10 @@ function App() {
 
   const machines = [...new Set(layout.monitores.map(m => m.machine))];
   const color = machine => palette[machines.indexOf(machine) % palette.length];
-  const conflict = overlapping(layout.monitores), error = validateLayout(layout);
+  const conflict = overlapping(layout.monitores), error = validateLayout(layout, home);
   const active = layout.monitores.find(m => m.id === selected);
-  // Telas deste computador seguem as coordenadas reais do Windows: ficam fixas, as outras se arrumam em volta.
-  const locked = m => m.machine === home;
+  // Telas deste computador são reais: movem (o Windows é rearrumado ao salvar), mas não mudam de tamanho nem somem.
+  const isHome = m => m.machine === home;
   const originX = 80 - Math.min(0, ...layout.monitores.map(m => m.x)) * zoom;
   const originY = 80 - Math.min(0, ...layout.monitores.map(m => m.y)) * zoom;
 
@@ -75,8 +75,8 @@ function App() {
               {layout.monitores.map(m => <button key={m.id}
                 className={`monitor ${selected === m.id ? 'selected' : ''} ${conflict.has(m.id) ? 'conflict' : ''}`}
                 style={{ left: originX + m.x * zoom, top: originY + m.y * zoom, width: m.width * zoom, height: m.height * zoom, borderColor: color(m.machine) }}
-                onPointerDown={e => { if (e.button !== 0) return; select(m.id); if (locked(m)) return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { id: m.id, x: m.x, y: m.y, px: e.clientX, py: e.clientY }; }}
-                onKeyDown={e => { if (locked(m)) return; const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (dir) { e.preventDefault(); const step = e.shiftKey ? 10 : 1; update(m.id, o => ({ ...o, x: o.x + dir[0] * step, y: o.y + dir[1] * step })); } }}
+                onPointerDown={e => { if (e.button !== 0) return; select(m.id); e.currentTarget.setPointerCapture(e.pointerId); drag.current = { id: m.id, x: m.x, y: m.y, px: e.clientX, py: e.clientY }; }}
+                onKeyDown={e => { const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (dir) { e.preventDefault(); const step = e.shiftKey ? 10 : 1; update(m.id, o => ({ ...o, x: o.x + dir[0] * step, y: o.y + dir[1] * step })); } }}
                 aria-label={`${m.machine}, ${Math.round(m.width / m.scale_fator)} ${t('por', 'by')} ${Math.round(m.height / m.scale_fator)}${conflict.has(m.id) ? t(', sobreposta', ', overlapping') : ''}`}>
                 <strong style={{ color: color(m.machine) }}>{m.machine}</strong>
                 <span>{Math.round(m.width / m.scale_fator)} × {Math.round(m.height / m.scale_fator)}</span>
@@ -92,16 +92,15 @@ function App() {
           {active ? <>
             <h2 style={{ color: color(active.machine) }}>{active.machine}</h2>
             <p className="hint">{t('Resolução', 'Resolution')} {Math.round(active.width / active.scale_fator)} × {Math.round(active.height / active.scale_fator)} ({active.id})</p>
-            {locked(active) ? <p className="hint">{t('Esta é uma tela deste computador: fica na posição real do Windows. Mova as telas das outras máquinas em volta dela.', 'This is one of this computer’s screens: it stays where Windows puts it. Move the other computers’ screens around it.')}</p> : <>
-            <label>{t('Tamanho na mesa', 'Size on desk')}
+            {isHome(active) && <p className="hint">{t('Tela deste computador: ao salvar, o Windows passa a usar esta mesma arrumação.', 'One of this computer’s screens: when you save, Windows is rearranged to match.')}</p>}
+            {!isHome(active) && <label>{t('Tamanho na mesa', 'Size on desk')}
               <input type="range" min="0.5" max="4" step="0.01" value={active.scale_fator} onChange={e => update(active.id, m => resize(m, +e.target.value))}/>
               <span className="hint">{Math.round(active.scale_fator * 100)}% · {t('aumente para alinhar com telas fisicamente maiores', 'increase it to match physically larger screens')}</span>
-            </label>
+            </label>}
             <div className="fields">{[['x', t('Posição X', 'Position X')], ['y', t('Posição Y', 'Position Y')]].map(([key, label]) =>
               <label key={key}>{label}<input type="number" step="1" value={active[key]} onChange={e => update(active.id, m => ({ ...m, [key]: Math.round(Number(e.target.value) || 0) }))}/></label>)}</div>
-            <button className="danger" onClick={() => { setLayout(l => ({ monitores: l.monitores.filter(m => m.id !== active.id) })); select(null); setDirty(true); }}>{t('Remover tela', 'Remove screen')}</button>
-            <p className="hint">{t('Tela removida volta sozinha quando a máquina reconectar.', 'A removed screen comes back when its computer reconnects.')}</p>
-            </>}
+            {!isHome(active) && <><button className="danger" onClick={() => { setLayout(l => ({ monitores: l.monitores.filter(m => m.id !== active.id) })); select(null); setDirty(true); }}>{t('Remover tela', 'Remove screen')}</button>
+            <p className="hint">{t('Tela removida volta sozinha quando a máquina reconectar.', 'A removed screen comes back when its computer reconnects.')}</p></>}
           </> : <p>{t('Clique numa tela para ajustar.', 'Click a screen to adjust it.')}</p>}
         </aside>
       </div>

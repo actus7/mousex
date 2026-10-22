@@ -29,6 +29,61 @@ pub fn ensure_home(layout: &ScreenLayout, home: &str, monitors: &[MonitorInfo]) 
     ScreenLayout { monitores: homes.chain(others).collect() }
 }
 
+/// Arrumação nova das telas da casa, feita no editor.
+#[derive(Debug)]
+pub struct HomeArrangement {
+    /// Layout salvo deslocado para a principal ficar em (0,0), como no Windows.
+    pub layout: ScreenLayout,
+    /// Posições (id nativo, x, y) a aplicar no Windows; vazio se ele já está assim.
+    pub positions: Vec<(String, i32, i32)>,
+}
+
+/// O editor moveu as telas da casa? Só com todas conhecidas e encostadas: o Windows não aceita telas soltas.
+pub fn home_arrangement(saved: &ScreenLayout, home: &str, current: &[MonitorInfo]) -> Option<HomeArrangement> {
+    let wanted = |info: &MonitorInfo| saved.monitores.iter().find(|m| m.id == global_id(home, &info.id));
+    let anchor = wanted(current.iter().find(|info| (info.x, info.y) == (0, 0))?)?;
+    let (dx, dy) = (anchor.x, anchor.y);
+    let targets: Vec<(String, i32, i32)> = current
+        .iter()
+        .map(|info| wanted(info).map(|m| (info.id.clone(), m.x - dx, m.y - dy)))
+        .collect::<Option<_>>()?;
+    let unchanged = targets.iter().zip(current).all(|((_, x, y), info)| (*x, *y) == (info.x, info.y));
+    if unchanged && (dx, dy) == (0, 0) {
+        return None;
+    }
+    let homes: Vec<&Monitor> = saved.monitores.iter().filter(|m| m.machine == home).collect();
+    if !connected(&homes) {
+        return None;
+    }
+    let shifted = saved.monitores.iter().map(|m| Monitor { x: m.x - dx, y: m.y - dy, ..m.clone() });
+    Some(HomeArrangement {
+        layout: ScreenLayout { monitores: shifted.collect() },
+        positions: if unchanged { Vec::new() } else { targets },
+    })
+}
+
+/// Encostam quando dividem um trecho de borda (só o canto não basta): é por ali que o cursor passa.
+fn touching(a: &Monitor, b: &Monitor) -> bool {
+    let rows = a.y < b.y + b.height && b.y < a.y + a.height;
+    let cols = a.x < b.x + b.width && b.x < a.x + a.width;
+    ((a.x + a.width == b.x || b.x + b.width == a.x) && rows)
+        || ((a.y + a.height == b.y || b.y + b.height == a.y) && cols)
+}
+
+fn connected(monitors: &[&Monitor]) -> bool {
+    let mut reached = monitors.iter().take(1).copied().collect::<Vec<_>>();
+    let mut i = 0;
+    while let Some(m) = reached.get(i).copied() {
+        for o in monitors {
+            if !reached.iter().any(|r| r.id == o.id) && touching(m, o) {
+                reached.push(o);
+            }
+        }
+        i += 1;
+    }
+    reached.len() == monitors.len()
+}
+
 /// Acrescenta só monitores desconhecidos da máquina, à direita do layout, preservando o arranjo entre eles.
 pub fn merge_monitors(layout: &ScreenLayout, machine: &str, monitors: &[MonitorInfo]) -> ScreenLayout {
     let known = |info: &&MonitorInfo| layout.monitores.iter().any(|m| m.id == global_id(machine, &info.id));
@@ -186,5 +241,63 @@ mod tests {
         let rebuilt = rebuild(&saved, "home", &homes, &clients);
         rebuilt.validate().expect("válido");
         assert_eq!(rebuilt.monitores.len(), 3);
+    }
+
+    fn at(layout: &ScreenLayout, id: &str) -> (i32, i32) {
+        let m = layout.monitores.iter().find(|m| m.id == id).expect("monitor");
+        (m.x, m.y)
+    }
+
+    fn mesa() -> (ScreenLayout, Vec<MonitorInfo>) {
+        // Ultrawide principal em (0,0), notebook à direita; mac acima do ultrawide.
+        let homes = vec![info("5", 0, 3440, 1440, 1.0), info("1", 3440, 2560, 1600, 1.0)];
+        let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "pc", &homes);
+        let mut mac = layout.monitores[0].clone();
+        (mac.id, mac.machine, mac.y) = ("mac:3".into(), "mac".into(), -1440);
+        (ScreenLayout { monitores: layout.monitores.iter().cloned().chain([mac]).collect() }, homes)
+    }
+
+    #[test]
+    fn arrumacao_igual_a_do_windows_nao_muda_nada() {
+        let (saved, homes) = mesa();
+        assert!(home_arrangement(&saved, "pc", &homes).is_none());
+    }
+
+    #[test]
+    fn notebook_movido_para_a_esquerda_rearruma_o_windows_com_a_principal_em_zero() {
+        let (mut saved, homes) = mesa();
+        // No editor: notebook à esquerda do ultrawide, que foi para x=2560 (o editor não ancora em zero).
+        for m in &mut saved.monitores {
+            match m.id.as_str() {
+                "pc:1" => (m.x, m.y) = (0, 0),
+                _ => m.x += 2560,
+            }
+        }
+        let plan = home_arrangement(&saved, "pc", &homes).expect("muda");
+        assert_eq!(plan.positions, vec![("5".to_string(), 0, 0), ("1".to_string(), -2560, 0)]);
+        assert_eq!(at(&plan.layout, "pc:5"), (0, 0), "layout acompanha: casa nas coordenadas reais");
+        assert_eq!(at(&plan.layout, "pc:1"), (-2560, 0));
+        assert_eq!(at(&plan.layout, "mac:3"), (0, -1440), "outras máquinas mantêm a posição relativa");
+    }
+
+    #[test]
+    fn casa_inteira_deslocada_so_ajusta_o_layout() {
+        let (mut saved, homes) = mesa();
+        for m in saved.monitores.iter_mut().filter(|m| m.machine == "pc") {
+            m.x += 100;
+        }
+        let plan = home_arrangement(&saved, "pc", &homes).expect("muda");
+        assert!(plan.positions.is_empty(), "o Windows já está assim");
+        assert_eq!(at(&plan.layout, "mac:3"), (-100, -1440));
+    }
+
+    #[test]
+    fn telas_soltas_ou_desconhecidas_nao_mexem_no_windows() {
+        let (mut saved, homes) = mesa();
+        saved.monitores.iter_mut().find(|m| m.id == "pc:1").expect("notebook").x = 4000;
+        assert!(home_arrangement(&saved, "pc", &homes).is_none(), "vão entre as telas");
+        let (saved, mut homes) = mesa();
+        homes.push(info("9", 6000, 1920, 1080, 1.0));
+        assert!(home_arrangement(&saved, "pc", &homes).is_none(), "tela que o layout não conhece");
     }
 }

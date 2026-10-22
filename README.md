@@ -206,7 +206,7 @@ Some companies block Accessibility permissions or LaunchAgents. If MouseX cannot
 Brazilian ABNT2 keyboards work best with a Mac set to the **Brazilian – ABNT2** layout. MouseX shows a one-time hint if the Mac uses a different layout. Ctrl on Windows becomes Cmd on the Mac, so shortcuts like Ctrl+C work as Cmd+C.
 
 **Monitors changed and the layout looks wrong.**
-MouseX detects monitor changes live. Open **Arrange screens…** from the tray to adjust the layout. Screens on the main computer always match Windows' real arrangement.
+MouseX detects monitor changes live. Open **Arrange screens…** from the tray to adjust the layout. You can drag the main computer's screens too: on save, Windows is rearranged to match, so there is no need to repeat the arrangement in Windows Settings.
 
 **Where are the logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`

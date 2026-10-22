@@ -36,6 +36,7 @@ pub const MAX_CLIPBOARD_UNITS: usize = 10 * 1024 * 1024;
 mod access;
 mod clip_files;
 mod clip_image;
+mod display;
 pub use clip_image::{clip_from_png, dib_to_png, png_to_dib, Clip, MAX_CLIPBOARD_IMAGE_BYTES};
 
 #[derive(Clone)]
@@ -147,6 +148,7 @@ mod power;
 mod shell;
 mod tray;
 pub use access::{as_standard_user, create_private_dir, free_space};
+pub use display::set_monitor_positions;
 pub use power::{keep_awake, lock_workstation};
 pub use shell::{hide_console, run_elevated, show_message};
 pub use tray::{set_tray_status, start_tray, TrayStatus};

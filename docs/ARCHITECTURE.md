@@ -158,7 +158,7 @@ The layout is a list of monitors in **global desk coordinates**:
 - `x`, `y`, `width`, and `height` are integer global pixels. Bounds are half-open.
 - `scale_fator` converts global pixels to a machine's logical coordinates: `local = (global - origin) / scale`.
 - Monitor IDs must be unique and not empty. The `machine` name must not be empty. An empty layout is valid.
-- **Home screens** (the screens of the computer with the physical keyboard) are locked to the real Windows arrangement, so the editor cannot make them lie about where they are.
+- **Home screens** (the screens of the computer with the physical keyboard) always use the real Windows coordinates. When the editor moves them, the server applies the new arrangement to Windows (`ChangeDisplaySettingsEx`, primary kept at 0,0) and shifts the whole saved layout to match, so the two never disagree. Home screens must touch each other, because Windows does not allow detached screens.
 - Other machines' screens can be placed anywhere. The **size on desk** slider changes the area a screen occupies without changing its resolution.
 
 ### Router

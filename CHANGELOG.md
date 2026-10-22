@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Screens of the main computer can be dragged in **Arrange screens…**; on save, Windows is rearranged to match, so the arrangement no longer has to be repeated in Windows Settings.
+
 ## [1.0.0] - 2026-10-22
 
 First public release.

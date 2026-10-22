@@ -3,7 +3,7 @@ use crate::clip::Clip;
 use crate::platform::{clipboard_read, clipboard_write};
 use crate::{
     clip,
-    layout::{connected_view, native_id, rebuild},
+    layout::{connected_view, home_arrangement, native_id, rebuild},
     log,
     platform::{button_to_u8, local_monitors},
 };
@@ -338,6 +338,7 @@ impl State {
             }
             Msg::Tick => self.keep_others_awake(),
             Msg::LayoutEdited => {
+                self.apply_home_arrangement();
                 self.rebuild_layout();
                 log("layout reloaded after the editor closed");
             }
@@ -579,6 +580,24 @@ impl State {
             log(&format!("failed to save layout: {error}"));
         }
         self.refresh_router();
+    }
+
+    /// Telas da casa movidas no editor: o Windows passa a usar a mesma arrumação, e o layout salvo é
+    /// deslocado para bater com as coordenadas reais (a principal fica em 0,0).
+    fn apply_home_arrangement(&self) {
+        let Some(plan) = home_arrangement(&read_saved(&self.layout_path), &self.home, &local_monitors()) else {
+            return;
+        };
+        if !plan.positions.is_empty() {
+            if let Err(error) = mousex_native::set_monitor_positions(&plan.positions) {
+                log(&format!("failed to rearrange this computer's screens: {error}"));
+                return;
+            }
+            log("this computer's screens were rearranged to match the layout");
+        }
+        if let Err(error) = save_layout(&self.layout_path, &plan.layout) {
+            log(&format!("failed to save layout: {error}"));
+        }
     }
 
     /// Abre o editor (um por vez) e recarrega o layout quando ele fechar.

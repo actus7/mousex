@@ -31,3 +31,12 @@ test('zoom cabe o layout inteiro no espaço disponível', () => {
 test('zoom nunca fica negativo em janela pequena', () => {
   assert.ok(fitZoom([{ ...a, width: 6000 }], 300) >= 0.03);
 });
+test('telas deste computador precisam se encostar: o Windows não aceita telas soltas', () => {
+  const ultra = { id: 'pc:5', machine: 'pc', x: 0, y: 0, width: 3440, height: 1440, scale_fator: 1 };
+  const note = { ...ultra, id: 'pc:1', x: 3440, width: 2560, height: 1600 };
+  const mac = { ...ultra, id: 'mac:3', machine: 'mac', x: 3440, y: -1440 };
+  assert.equal(validateLayout({ monitores: [ultra, note, mac] }, 'pc'), '');
+  assert.ok(validateLayout({ monitores: [ultra, { ...note, x: 3500 }, mac] }, 'pc'), 'vão entre as telas da casa');
+  assert.ok(validateLayout({ monitores: [ultra, { ...note, x: 3440, y: 1440 }] }, 'pc'), 'encostar só no canto não conta');
+  assert.equal(validateLayout({ monitores: [ultra, { ...mac, x: 9000 }] }, 'pc'), '', 'outras máquinas podem ficar soltas');
+});

@@ -206,7 +206,7 @@ Algumas empresas bloqueiam permissões de Acessibilidade ou LaunchAgents. Se o M
 Teclados ABNT2 funcionam melhor com o Mac configurado para o layout **Português – ABNT2**. O MouseX mostra uma dica, uma única vez, se o Mac usar outro layout. Ctrl do Windows vira Cmd no Mac, então atalhos como Ctrl+C funcionam como Cmd+C.
 
 **Mudei os monitores e o layout ficou errado.**
-O MouseX detecta mudanças de monitor em tempo real. Abra **Arrumar telas…** no menu da bandeja para ajustar o layout. As telas do computador principal sempre seguem a disposição real do Windows.
+O MouseX detecta mudanças de monitor em tempo real. Abra **Arrumar telas…** no menu da bandeja para ajustar o layout. Você também pode arrastar as telas do computador principal: ao salvar, o Windows é rearrumado igual, sem precisar repetir a arrumação nas Configurações.
 
 **Onde ficam os logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`
