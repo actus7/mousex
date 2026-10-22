@@ -9,7 +9,7 @@ description = "MouseX macOS backend: CGEvent injection, displays, pasteboard and
 edition = "2021"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = { version = "0.24", features = ["highsierra"] }
+core-graphics = { version = "0.25", features = ["highsierra"] }
 core-foundation = "0.10"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSBitmapImageRep", "NSImageRep"] }
