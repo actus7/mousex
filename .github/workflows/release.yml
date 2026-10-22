@@ -170,6 +170,7 @@ jobs:
           fi
           umask 077
           key="$RUNNER_TEMP/release-key.pem"
+          trap 'rm -f "$key"' EXIT
           printf '%s\n' "$SIGNING_KEY" > "$key"
           { printf 'MouseX %s\n' "$GITHUB_REF_NAME"; cat dist/SHA256SUMS; } > "$RUNNER_TEMP/signed.txt"
           openssl pkeyutl -sign -inkey "$key" -rawin -in "$RUNNER_TEMP/signed.txt" -out dist/SHA256SUMS.sig

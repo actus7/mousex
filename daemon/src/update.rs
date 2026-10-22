@@ -87,37 +87,64 @@ fn download_and_verify(tag: &str, work: &Path) -> Result<(), Box<dyn Error>> {
 fn replace(bin: &Path, package: &Path, tag: &str) -> Result<(), Box<dyn Error>> {
     stop_agent();
     let names: Vec<&str> = FILES.iter().copied().filter(|name| package.join(name).exists()).collect();
-    let old = |name: &str| bin.join(format!("{name}.old"));
-    let swapped = names.iter().try_for_each(|name| {
-        let _ = std::fs::remove_file(old(name));
-        if bin.join(name).exists() {
-            // Renomear funciona com o executável em uso (Windows) e preserva a assinatura em cache (Mac).
-            std::fs::rename(bin.join(name), old(name))?;
-        }
-        std::fs::copy(package.join(name), bin.join(name)).map(drop)
-    });
+    let (moved, swapped) = swap(bin, package, &names);
     let healthy = swapped.map_err(Box::<dyn Error>::from).and_then(|()| {
         sign(bin, &names);
-        let version = run(&bin.join(CLI).display().to_string(), &["version"])?;
-        if version.trim() == tag.trim_start_matches('v') {
+        let version = version_of(&bin.join(CLI))?;
+        if version == tag.trim_start_matches('v') {
             Ok(())
         } else {
-            Err(format!("new binary reports version {:?}", version.trim()).into())
+            Err(format!("new binary reports version {version:?}").into())
         }
     });
-    if healthy.is_ok() {
-        record_version(tag);
-    }
-    if healthy.is_err() {
-        for name in &names {
-            if old(name).exists() {
-                let _ = std::fs::remove_file(bin.join(name));
-                let _ = std::fs::rename(old(name), bin.join(name));
-            }
-        }
+    match healthy {
+        Ok(()) => record_version(tag),
+        Err(_) => restore(bin, &moved),
     }
     start_agent();
     healthy
+}
+
+fn old(bin: &Path, name: &str) -> PathBuf {
+    bin.join(format!("{name}.old"))
+}
+
+/// Copia o pacote por cima guardando cada anterior em `.old`. Devolve os que foram de fato renomeados
+/// nesta vez: só eles voltam no rollback (um `.old` de update antigo nunca é restaurado).
+fn swap<'a>(bin: &Path, package: &Path, names: &[&'a str]) -> (Vec<&'a str>, std::io::Result<()>) {
+    let mut moved = Vec::new();
+    let result = names.iter().try_for_each(|name| {
+        let _ = std::fs::remove_file(old(bin, name));
+        if bin.join(name).exists() {
+            // Renomear funciona com o executável em uso (Windows) e preserva a assinatura em cache (Mac).
+            std::fs::rename(bin.join(name), old(bin, name))?;
+            moved.push(*name);
+        }
+        std::fs::copy(package.join(name), bin.join(name)).map(drop)
+    });
+    (moved, result)
+}
+
+fn restore(bin: &Path, moved: &[&str]) {
+    for name in moved {
+        let _ = std::fs::remove_file(bin.join(name));
+        let _ = std::fs::rename(old(bin, name), bin.join(name));
+    }
+}
+
+/// `mousex version` do binário novo, com prazo: um binário travado não pode prender o update (e o rollback).
+fn version_of(cli: &Path) -> Result<String, Box<dyn Error>> {
+    let mut child = Command::new(cli).arg("version").stdout(std::process::Stdio::piped()).spawn()?;
+    for _ in 0..300 {
+        if let Some(status) = child.try_wait()? {
+            let mut text = String::new();
+            std::io::Read::read_to_string(&mut child.stdout.take().ok_or("no output")?, &mut text)?;
+            return if status.success() { Ok(text.trim().to_string()) } else { Err("new binary failed to run".into()) };
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = child.kill();
+    Err("new binary did not answer within 30 s".into())
 }
 
 fn curl(args: &[&str]) -> Result<String, Box<dyn Error>> {
@@ -216,5 +243,47 @@ fn sign(bin: &Path, names: &[&str]) {
         {
             log(&format!("update: signing {name} failed: {error}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mousex-update-{tag}-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).expect("pasta");
+        dir
+    }
+
+    #[test]
+    fn falha_no_meio_volta_so_o_que_foi_trocado_nesta_vez() {
+        let (bin, package) = (dir("bin"), dir("pkg"));
+        for (name, text) in [("a", "a1"), ("b", "b1"), ("c", "c1"), ("c.old", "c0 de um update anterior")] {
+            std::fs::write(bin.join(name), text).expect("bin");
+        }
+        std::fs::write(package.join("a"), "a2").expect("pkg");
+        std::fs::create_dir(package.join("b")).expect("b vira pasta: a cópia falha");
+        std::fs::write(package.join("c"), "c2").expect("pkg");
+        let (moved, result) = swap(&bin, &package, &["a", "b", "c"]);
+        assert!(result.is_err());
+        restore(&bin, &moved);
+        let read = |name: &str| std::fs::read_to_string(bin.join(name)).expect(name);
+        assert_eq!((read("a"), read("b"), read("c")), ("a1".into(), "b1".into(), "c1".into()));
+        let _ = (std::fs::remove_dir_all(bin), std::fs::remove_dir_all(package));
+    }
+
+    #[test]
+    fn troca_completa_guarda_os_anteriores() {
+        let (bin, package) = (dir("bin"), dir("pkg"));
+        std::fs::write(bin.join("a"), "a1").expect("bin");
+        std::fs::write(package.join("a"), "a2").expect("pkg");
+        std::fs::write(package.join("novo"), "n2").expect("pkg");
+        let (moved, result) = swap(&bin, &package, &["a", "novo"]);
+        result.expect("troca");
+        assert_eq!(moved, ["a"]);
+        assert_eq!(std::fs::read_to_string(bin.join("a")).expect("a"), "a2");
+        assert_eq!(std::fs::read_to_string(bin.join("a.old")).expect("a.old"), "a1");
+        let _ = (std::fs::remove_dir_all(bin), std::fs::remove_dir_all(package));
     }
 }
