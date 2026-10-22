@@ -573,9 +573,8 @@ impl State {
     /// Relê o layout salvo (o editor ou outra conexão pode tê-lo mudado), aplica a casa real e os clientes
     /// conectados, grava e atualiza o roteador. Única porta de entrada: nenhum caminho perde um cliente conectado.
     fn rebuild_layout(&mut self) {
-        let clients: Vec<(String, Vec<MonitorInfo>)> =
-            self.clients.iter().map(|(name, c)| (name.clone(), c.monitors.clone())).collect();
-        self.layout = rebuild(&read_saved(&self.layout_path), &self.home, &local_monitors(), &clients);
+        self.layout =
+            rebuild(&read_saved(&self.layout_path), &self.home, &local_monitors(), &self.connected_monitors());
         if let Err(error) = save_layout(&self.layout_path, &self.layout) {
             log(&format!("failed to save layout: {error}"));
         }
@@ -624,9 +623,12 @@ impl State {
         });
     }
 
+    fn connected_monitors(&self) -> Vec<(String, Vec<MonitorInfo>)> {
+        self.clients.iter().map(|(name, c)| (name.clone(), c.monitors.clone())).collect()
+    }
+
     fn refresh_router(&mut self) {
-        let connected: Vec<String> = self.clients.keys().cloned().collect();
-        self.router.set_layout(connected_view(&self.layout, &self.home, &connected));
+        self.router.set_layout(connected_view(&self.layout, &self.home, &self.connected_monitors()));
         self.update_tray();
     }
 

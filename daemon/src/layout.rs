@@ -84,12 +84,24 @@ fn connected(monitors: &[&Monitor]) -> bool {
     reached.len() == monitors.len()
 }
 
-/// Acrescenta só monitores desconhecidos da máquina, à direita do layout, preservando o arranjo entre eles.
+/// Monitores desconhecidos da máquina entram à direita do layout, preservando o arranjo entre eles.
+/// Os conhecidos ficam onde o usuário pôs, com o tamanho da resolução atual (e o "tamanho na mesa" dele).
 pub fn merge_monitors(layout: &ScreenLayout, machine: &str, monitors: &[MonitorInfo]) -> ScreenLayout {
+    let current =
+        |m: &Monitor| monitors.iter().find(|info| m.machine == machine && global_id(machine, &info.id) == m.id);
+    let resized = layout.monitores.iter().map(|m| match current(m) {
+        Some(info) => Monitor {
+            width: (info.width as f64 * m.scale_fator).round() as i32,
+            height: (info.height as f64 * m.scale_fator).round() as i32,
+            ..m.clone()
+        },
+        None => m.clone(),
+    });
+    let layout = ScreenLayout { monitores: resized.collect() };
     let known = |info: &&MonitorInfo| layout.monitores.iter().any(|m| m.id == global_id(machine, &info.id));
     let new: Vec<&MonitorInfo> = monitors.iter().filter(|info| !known(info)).collect();
     if new.is_empty() {
-        return layout.clone();
+        return layout;
     }
     let right = layout.monitores.iter().map(|m| m.x + m.width).max().unwrap_or(0);
     let top = layout.monitores.iter().map(|m| m.y).min().unwrap_or(0);
@@ -132,16 +144,15 @@ pub fn rebuild(
     clients.iter().fold(base, |layout, (machine, monitors)| add_machine(&layout, machine, monitors).unwrap_or(layout))
 }
 
-/// Só casa e máquinas conectadas: máquina ausente vira parede, não destino.
-pub fn connected_view(layout: &ScreenLayout, home: &str, connected: &[String]) -> ScreenLayout {
-    ScreenLayout {
-        monitores: layout
-            .monitores
+/// Só a casa e as telas que cada cliente conectado informou agora: máquina ausente ou tela que sumiu
+/// (cabo trocado, monitor desligado) vira parede, não destino. O layout guarda a posição para quando voltar.
+pub fn connected_view(layout: &ScreenLayout, home: &str, connected: &[(String, Vec<MonitorInfo>)]) -> ScreenLayout {
+    let present = |m: &Monitor| {
+        connected
             .iter()
-            .filter(|m| m.machine == home || connected.contains(&m.machine))
-            .cloned()
-            .collect(),
-    }
+            .any(|(machine, monitors)| *machine == m.machine && monitors.iter().any(|i| i.id == native_id(&m.id)))
+    };
+    ScreenLayout { monitores: layout.monitores.iter().filter(|m| m.machine == home || present(m)).cloned().collect() }
 }
 
 #[cfg(test)]
@@ -190,7 +201,8 @@ mod tests {
         let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "home", &[info("a", 0, 1920, 1080, 1.0)]);
         let layout = merge_monitors(&layout, "win2", &[info("1", 0, 1920, 1080, 1.0)]);
         assert_eq!(connected_view(&layout, "home", &[]).monitores.len(), 1);
-        assert_eq!(connected_view(&layout, "home", &["win2".to_string()]).monitores.len(), 2);
+        let win2 = vec![("win2".to_string(), vec![info("1", 0, 1920, 1080, 1.0)])];
+        assert_eq!(connected_view(&layout, "home", &win2).monitores.len(), 2);
         assert_eq!(native_id("win2:1"), "1");
     }
 
@@ -299,5 +311,29 @@ mod tests {
         let (saved, mut homes) = mesa();
         homes.push(info("9", 6000, 1920, 1080, 1.0));
         assert!(home_arrangement(&saved, "pc", &homes).is_none(), "tela que o layout não conhece");
+    }
+
+    #[test]
+    fn tela_que_o_cliente_nao_informa_mais_vira_parede() {
+        // Cabo trocado de HDMI para DP: o Mac renumera a tela; a antiga fica no layout, mas não é destino.
+        let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "home", &[info("a", 0, 1920, 1080, 1.0)]);
+        let layout = merge_monitors(&layout, "mac", &[info("3", 0, 2560, 1440, 1.0)]);
+        let layout = merge_monitors(&layout, "mac", &[info("2", 0, 2560, 1440, 1.0)]);
+        let now = vec![("mac".to_string(), vec![info("2", 0, 2560, 1440, 1.0)])];
+        let ids: Vec<String> = connected_view(&layout, "home", &now).monitores.into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["home:a", "mac:2"]);
+    }
+
+    #[test]
+    fn resolucao_nova_de_tela_conhecida_atualiza_o_tamanho_e_mantem_posicao_e_tamanho_na_mesa() {
+        let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "home", &[info("a", 0, 1920, 1080, 1.0)]);
+        let mut layout = merge_monitors(&layout, "mac", &[info("2", 0, 2560, 1440, 1.0)]);
+        // Usuário ajustou o "tamanho na mesa" e a posição no editor.
+        let mac = layout.monitores.iter_mut().find(|m| m.id == "mac:2").expect("mac");
+        (mac.x, mac.y, mac.width, mac.height, mac.scale_fator) = (0, -2000, 5120, 2880, 2.0);
+        let updated = merge_monitors(&layout, "mac", &[info("2", 0, 3440, 1440, 1.0)]);
+        let mac = updated.monitores.iter().find(|m| m.id == "mac:2").expect("mac");
+        assert_eq!((mac.x, mac.y, mac.width, mac.height, mac.scale_fator), (0, -2000, 6880, 2880, 2.0));
+        assert_eq!(updated.monitores.len(), 2);
     }
 }

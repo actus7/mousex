@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Screens of the main computer can be dragged in **Arrange screens…**; on save, Windows is rearranged to match, so the arrangement no longer has to be repeated in Windows Settings.
 
+### Fixed
+
+- A client screen that disappears (cable swapped, monitor turned off) is no longer a cursor destination; it keeps its place in the layout for when it comes back.
+- A client screen that changes resolution is resized in the layout, keeping its position and size on desk.
+
 ## [1.0.0] - 2026-10-22
 
 First public release.
