@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. MouseX aims to stay simple: install once, never touch again.
+        Please describe the problem first, then the change you have in mind.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what you are trying to do today and where it gets in the way.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like MouseX to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Other tools, workarounds, or settings.
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Which platforms does this affect?
+      multiple: true
+      options:
+        - Windows
+        - macOS
+        - Linux (not supported yet)
+        - All of them
+        - Not sure
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: This does not include security-sensitive details. Security problems go to the private report form instead.
+          required: true

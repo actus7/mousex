@@ -1,0 +1,63 @@
+# Changelog
+
+All notable changes to MouseX are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.0.0] - 2026-10-22
+
+First public release.
+
+### Added
+
+- **Shared desk:** move the cursor across screen edges between a Windows main
+  computer and other Windows PCs or Macs, monitor by monitor, without any
+  network address to type.
+- **Arrange screens editor:** a visual editor to match the screen layout to
+  your real desk, with a "size on desk" slider for physically larger or smaller
+  screens. The main computer's screens always follow Windows' real arrangement.
+- **Clipboard sync:** text, images (PNG, DIB, and TIFF), and files and folders
+  (up to 2 GB), in both directions between Windows and Mac. Symbolic links are
+  skipped.
+- **Pairing:** each device has its own key pair. Pairing shows the same 6-digit
+  code on both machines, which must be confirmed on both. Paired devices are
+  remembered across reboots.
+- **Encrypted transport:** QUIC with TLS 1.3. Mouse motion uses unreliable
+  datagrams with sequence numbers, so the cursor never drifts; keys, clicks, and
+  clipboard use reliable streams.
+- **Automatic discovery:** mDNS, UDP broadcast, and a last-known address cache.
+  No IP addresses to configure.
+- **Automatic reconnection** with backoff, a 500 ms keepalive, and release of
+  all held keys and buttons when a link drops.
+- **Install once:** one command per Windows PC (`install.ps1`, or the
+  `mousex.exe` download) and one command on macOS (`install.sh`). The Windows
+  installer opens the firewall for the local subnet only. The macOS installer
+  signs the binaries locally, so the Accessibility permission survives updates.
+- **Tray icon** on Windows: machines numbered left to right with connection
+  status, Pause sharing, Lock cursor to screen, Reconnect, Arrange screens, and
+  Open log.
+- **Hotkeys:** `Ctrl+Alt+Shift+1…9` to jump to a machine, `Scroll Lock` to lock
+  the cursor to the current machine, and `Ctrl+Alt+Shift+Home` to bring the
+  cursor home.
+- **Keep the desk awake:** other machines stay awake while you are active on
+  any of them. Locking the main PC (Win+L) locks the others too. Idle locks are
+  not propagated.
+- **Media keys** (play/pause, next, previous, volume, mute) work on the Mac.
+- **Keyboards:** ABNT2 and international layouts through scan codes. Ctrl and
+  Cmd are swapped when controlling a Mac. A one-time hint appears on a Mac whose
+  keyboard layout does not match ABNT2.
+- **Live monitor changes:** hot-plugging or rearranging monitors is detected on
+  the server and on the clients.
+- **Languages:** English and Portuguese, chosen from the operating system's
+  language.
+- **Security hardening:** pinned per-device certificates, pairing confirmation
+  on both sides with memory of rejected devices, restricted-token reads for
+  copied files, a private folder for received files, validation of device paths
+  and Windows reserved names, and a Windows data folder writable only by
+  Administrators.
+
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/actus7/mousex/releases/tag/v1.0.0

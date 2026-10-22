@@ -1,0 +1,16 @@
+[package]
+name = "mousex-platform-macos"
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "MouseX macOS backend: CGEvent injection, displays, pasteboard and accessibility."
+edition = "2021"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = { version = "0.24", features = ["highsierra"] }
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSBitmapImageRep", "NSImageRep"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSDictionary"] }

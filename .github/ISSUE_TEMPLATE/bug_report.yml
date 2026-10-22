@@ -1,0 +1,102 @@
+name: Bug report
+description: Something does not work as described in the README.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        **Security problems must not be reported here.** Use **Security → Report a vulnerability** instead (see SECURITY.md).
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A short description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps, starting from a clean state if possible.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: main-os
+    attributes:
+      label: Main computer OS
+      description: The Windows PC with the physical keyboard and mouse.
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+
+  - type: dropdown
+    id: other-os
+    attributes:
+      label: Other computer OS
+      description: The machine the cursor moved to. Choose the one involved in the bug.
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS 15 or newer
+        - macOS 14
+        - macOS 13
+        - macOS 12
+        - Other / not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: MouseX version
+      description: Shown by `mousex status` or in the tray menu.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How are the computers connected?
+      options:
+        - Same Wi-Fi network
+        - Ethernet, same network
+        - Different networks or VPN
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: |
+        Attach the relevant part of the log file, not the whole file.
+        Windows: `C:\ProgramData\MouseX\mousex.log`
+        macOS: `~/Library/Application Support/mousex/mousex.log`
+        Remove anything private (names, IP addresses, file names) before posting.
+      render: text
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Screenshots, keyboard layout (for example ABNT2), monitors and their arrangement, or other details.

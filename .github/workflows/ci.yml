@@ -1,0 +1,106 @@
+# Continuous integration: format, lint, tests and build checks for every push to master and every PR.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows (x86_64-pc-windows-gnu)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-windows-gnu
+
+      - name: Format
+        shell: bash
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
+
+      - name: Test
+        shell: bash
+        run: cargo test --workspace --locked --target x86_64-pc-windows-gnu
+
+  macos:
+    name: macOS (client)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # mousex-native is Windows-only and must not be compiled on macOS.
+      - name: Clippy
+        run: cargo clippy --workspace --exclude mousex-native --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --exclude mousex-native --locked
+
+  editor-web:
+    name: Editor (web part)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  editor-tauri:
+    name: Editor (Tauri, Windows GNU)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-windows-gnu
+
+      # Tauri embeds app/dist at compile time, so the frontend must be built first.
+      - name: Build frontend
+        shell: bash
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Cargo check
+        shell: bash
+        working-directory: app/src-tauri
+        run: cargo check --locked --target x86_64-pc-windows-gnu
