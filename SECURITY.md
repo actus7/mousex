@@ -74,7 +74,7 @@ Someone serves a modified MouseX package, or replays an old release with a known
 
 **Mitigations**
 
-- Every release has a `SHA256SUMS.sig`: an Ed25519 signature over the release tag plus `SHA256SUMS`. The public key is built into MouseX (`src/update.rs`); the private key is only in the repository's Actions secrets and with the maintainer.
+- Every release has a `SHA256SUMS.sig`: an Ed25519 signature over the release tag plus `SHA256SUMS`. The public key is built into MouseX (`src/update.rs`); the private key is only in the `release` environment of the repository and with the maintainer. That environment requires the maintainer's approval for every run and accepts only `v*` tags, and a ruleset lets only administrators create, move or delete `v*` tags. A workflow change merged by mistake therefore cannot reach the key without an approved release.
 - Automatic updates install nothing unless the signature is valid **and** the package hash matches. Because the tag is part of the signed text, an old release cannot pass as a newer one, and only versions higher than the running one are installed.
 - Downloads use HTTPS only (`curl --proto =https --proto-redir =https --tlsv1.2`). On Windows the update runs as SYSTEM and stages files inside `Program Files\MouseX`, which only administrators can write.
 - If the new binary does not start and report the expected version, the previous files are restored.

@@ -136,6 +136,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [windows, macos]
     runs-on: ubuntu-latest
+    # The signing key lives only in this environment: it needs the maintainer's approval per run and
+    # accepts only v* tags, so a workflow change merged by mistake cannot reach the key on its own.
+    environment: release
     timeout-minutes: 15
     permissions:
       contents: write

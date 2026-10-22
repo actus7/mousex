@@ -177,6 +177,15 @@ When you report a bug, include the logs and the operating system versions. Remov
 
 Keep pull requests focused. A small, reviewed change merges faster than a large one.
 
+Changes to `.github/workflows/` get extra scrutiny: the release workflow signs the packages that every installation updates to by itself.
+
+## Releasing (maintainers)
+
+1. Bump the version in `Cargo.toml`, `app/package.json`, `app/src-tauri/Cargo.toml` and `app/src-tauri/tauri.conf.json`, run `cargo check` in the root and in `app/src-tauri` to refresh the lockfiles, and date the section in `CHANGELOG.md`.
+2. Wait for CI to pass on `master`, then push a `vX.Y.Z` tag (only administrators can create `v*` tags).
+3. The release workflow builds both packages and then waits for approval of the `release` environment, which holds the signing key. Check that the run belongs to your tag and approve it.
+4. Installed copies pick up the signed release by themselves within a day.
+
 ## License
 
 By contributing, you agree that your contribution is licensed under the MIT License and the Apache License 2.0, the same as the project. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
