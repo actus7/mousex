@@ -1,4 +1,5 @@
-# Weekly dependency updates. Minor and patch bumps are grouped per ecosystem to keep PRs few.
+# Weekly dependency updates. Minor and patch bumps are grouped per ecosystem to keep PRs few;
+# major versions are upgraded by hand (they usually need code changes).
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -9,6 +10,9 @@ updates:
       cargo-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: "/app/src-tauri"
@@ -18,6 +22,9 @@ updates:
       tauri-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/app"
@@ -27,6 +34,9 @@ updates:
       npm-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -36,3 +46,6 @@ updates:
       actions-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

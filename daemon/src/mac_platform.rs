@@ -126,7 +126,7 @@ pub fn as_standard_user<T>(f: impl FnOnce() -> T) -> std::io::Result<T> {
 }
 
 /// Pasta de recebidos dentro da pasta de dados do usuário.
-pub fn ensure_inbox(inbox: &std::path::Path) -> std::io::Result<()> {
+pub fn ensure_inbox(inbox: &std::path::Path, _check_owner: bool) -> std::io::Result<()> {
     std::fs::create_dir_all(inbox)
 }
 

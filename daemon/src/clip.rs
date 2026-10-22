@@ -221,7 +221,7 @@ fn is_transfer_name(name: &str) -> bool {
 /// Pasta nova para uma transferência; apaga as antigas além das últimas `KEPT_TRANSFERS`.
 /// Só pastas de transferência de verdade (nome no formato, sem link) são apagadas.
 fn transfer_dir(inbox: &Path) -> io::Result<PathBuf> {
-    crate::platform::ensure_inbox(inbox)?;
+    crate::platform::ensure_inbox(inbox, !cfg!(test))?;
     let mut old: Vec<PathBuf> = std::fs::read_dir(inbox)?
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink()))

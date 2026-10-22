@@ -353,10 +353,25 @@ pub fn open_unlinked(path: &std::path::Path, delete: bool) -> io::Result<std::fs
         .strip_prefix(r"\\?\UNC\")
         .map(|rest| format!(r"\\{rest}"))
         .unwrap_or_else(|| real.trim_start_matches(r"\\?\").to_string());
-    if !real.eq_ignore_ascii_case(&path.display().to_string()) {
+    if !real.eq_ignore_ascii_case(&long_path(path)) {
         return Err(io::Error::other(format!("{} resolves to {real}", path.display())));
     }
     Ok(file)
+}
+
+/// Caminho com os nomes curtos do DOS ("RUNNER~1") expandidos. Não segue junctions: cada componente
+/// mantém o próprio nome, então o desvio por link continua aparecendo na comparação com o caminho final.
+fn long_path(path: &std::path::Path) -> String {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buffer = vec![0u16; 1024];
+    // SAFETY: caminho terminado em NUL; buffer do tamanho informado.
+    let length = unsafe { GetLongPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+    if length == 0 || length >= buffer.len() {
+        return path.display().to_string();
+    }
+    std::ffi::OsString::from_wide(&buffer[..length]).to_string_lossy().into_owned()
 }
 
 /// Apaga pelo handle de `open_unlinked`: o arquivo apagado é exatamente o que foi conferido.
@@ -1367,6 +1382,29 @@ mod tests {
         std::fs::create_dir_all(&mine).expect("pasta");
         assert!(!owned_by_admins(&mine).expect("temp"), "pasta criada sem elevação pertence ao usuário");
         let _ = std::fs::remove_dir(&mine);
+    }
+
+    #[test]
+    fn caminho_com_nome_curto_do_dos_nao_e_confundido_com_link() {
+        let dir = std::env::temp_dir().join(format!("mousex-nome-bem-longo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("pasta");
+        std::fs::write(dir.join("arquivo.txt"), "x").expect("arquivo");
+        let short = {
+            use std::os::windows::ffi::{OsStrExt, OsStringExt};
+            let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+            let mut buffer = vec![0u16; 1024];
+            // SAFETY: caminho terminado em NUL; buffer do tamanho informado.
+            let length = unsafe {
+                windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(
+                    wide.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    buffer.len() as u32,
+                )
+            } as usize;
+            std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..length]))
+        };
+        assert!(open_unlinked(&short.join("arquivo.txt"), false).is_ok(), "{} é a mesma pasta", short.display());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

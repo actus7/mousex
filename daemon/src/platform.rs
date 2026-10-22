@@ -158,7 +158,8 @@ pub fn as_standard_user<T>(f: impl FnOnce() -> T) -> std::io::Result<T> {
 
 /// Pasta de recebidos: criada privada; se já existe, não pode ser link nem, com o agente elevado,
 /// pertencer a outro dono que não Administradores (programa comum que a criou antes).
-pub fn ensure_inbox(inbox: &std::path::Path) -> std::io::Result<()> {
+/// `check_owner` só fica desligado nos testes, que criam a própria pasta.
+pub fn ensure_inbox(inbox: &std::path::Path, check_owner: bool) -> std::io::Result<()> {
     use std::os::windows::fs::MetadataExt;
     const REPARSE_POINT: u32 = 0x400;
     match std::fs::symlink_metadata(inbox) {
@@ -172,7 +173,7 @@ pub fn ensure_inbox(inbox: &std::path::Path) -> std::io::Result<()> {
         Ok(meta) if meta.file_attributes() & REPARSE_POINT != 0 || !meta.is_dir() => {
             Err(std::io::Error::other("received-files folder is a link"))
         }
-        Ok(_) if mousex_native::is_elevated() && !mousex_native::owned_by_admins(inbox)? => {
+        Ok(_) if check_owner && mousex_native::is_elevated() && !mousex_native::owned_by_admins(inbox)? => {
             Err(std::io::Error::other("received-files folder is not owned by Administrators"))
         }
         Ok(_) => Ok(()),
