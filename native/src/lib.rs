@@ -1361,8 +1361,15 @@ mod tests {
 
     #[test]
     fn elevacao_e_consultavel() {
-        // Este processo de teste roda sem elevação no ambiente de desenvolvimento.
-        assert!(!is_elevated());
+        // Oráculo independente: `net session` só funciona em processo elevado (o runner da CI é).
+        let elevated = std::process::Command::new("net")
+            .arg("session")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("net session")
+            .success();
+        assert_eq!(is_elevated(), elevated);
     }
 
     #[test]
