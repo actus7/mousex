@@ -20,10 +20,12 @@ runs:
       run: |
         Add-Content -Path $env:GITHUB_PATH -Value 'C:\msys64\mingw64\bin'
 
-    - name: Install Rust (GNU target)
-      uses: dtolnay/rust-toolchain@stable
+    # GNU as the *host* toolchain, not just a target: build scripts (embed-resource in the
+    # editor) pick the resource compiler by host, and an MSVC host emits a .lib MinGW ld rejects.
+    - name: Install Rust (GNU host)
+      uses: dtolnay/rust-toolchain@master
       with:
-        targets: x86_64-pc-windows-gnu
+        toolchain: stable-x86_64-pc-windows-gnu
         components: clippy, rustfmt
 
     # Two workspaces: the root (mousex, native, daemon, ...) and the Tauri editor.

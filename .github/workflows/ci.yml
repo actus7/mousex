@@ -100,7 +100,7 @@ jobs:
           npm ci
           npm run build
 
-      - name: Cargo check
+      - name: Cargo build (links, unlike check)
         shell: bash
         working-directory: app/src-tauri
-        run: cargo check --locked --target x86_64-pc-windows-gnu
+        run: cargo build --locked --target x86_64-pc-windows-gnu
