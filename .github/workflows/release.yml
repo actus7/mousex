@@ -80,7 +80,7 @@ jobs:
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
           Get-ChildItem -LiteralPath $stage | ForEach-Object { Write-Host $_.Name }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MouseX-windows-x64
           path: MouseX-windows-x64.zip
@@ -124,7 +124,7 @@ jobs:
             mousex mousex-agent LICENSE-MIT LICENSE-APACHE README.md
           tar -tzf MouseX-macos-universal.tar.gz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MouseX-macos-universal
           path: MouseX-macos-universal.tar.gz
