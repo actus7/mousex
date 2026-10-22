@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-22
+
+### Fixed
+
+- Windows: after an automatic update the agent could exit with "address in use" (error 10048) because the previous one had not released its ports yet, leaving MouseX stopped until the next sign-in. The agent now waits up to 15 s for the ports.
+
 ## [1.1.1] - 2026-10-22
 
 ### Fixed
@@ -79,7 +85,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/actus7/mousex/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/actus7/mousex/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/actus7/mousex/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/actus7/mousex/releases/tag/v1.0.0

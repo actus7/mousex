@@ -109,9 +109,27 @@ impl Client {
     }
 }
 
+/// O agente anterior (atualização, reinstalação) pode levar alguns segundos para soltar as portas;
+/// no Windows a tarefa não religa um agente que saiu com erro, então esperar aqui evita ficar parado.
+const PORT_WAIT: Duration = Duration::from_secs(15);
+
+async fn bind_with_retry<T>(mut open: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    let deadline = Instant::now() + PORT_WAIT;
+    loop {
+        match open() {
+            Err(error) if error.kind() == io::ErrorKind::AddrInUse && Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            result => return result,
+        }
+    }
+}
+
 pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io::Result<()> {
-    let endpoint = net::server_endpoint(&identity, net::PORT)?;
-    let _advertiser = mousex_core::discovery::Advertiser::start(&identity.fingerprint, &machine, net::PORT)?;
+    let endpoint = bind_with_retry(|| net::server_endpoint(&identity, net::PORT)).await?;
+    let _advertiser =
+        bind_with_retry(|| mousex_core::discovery::Advertiser::start(&identity.fingerprint, &machine, net::PORT))
+            .await?;
     let (_hooks, events) = Hooks::start()?;
     if let Err(error) = mousex_native::start_tray() {
         log(&format!("tray icon unavailable: {error}"));
@@ -730,5 +748,17 @@ mod tests {
         assert!(memory.recent("fp", start + Duration::from_secs(60)));
         assert!(!memory.recent("fp", start + REJECTION_MEMORY + Duration::from_secs(1)));
         assert!(!memory.recent("outro", start));
+    }
+
+    #[tokio::test]
+    async fn porta_ainda_presa_pelo_agente_anterior_e_esperada() {
+        let held = std::net::UdpSocket::bind(("127.0.0.1", 0)).expect("porta");
+        let port = held.local_addr().expect("endereço").port();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(1));
+            drop(held);
+        });
+        let socket = bind_with_retry(|| std::net::UdpSocket::bind(("127.0.0.1", port))).await;
+        assert!(socket.is_ok(), "a porta foi liberada no meio da espera: {socket:?}");
     }
 }
