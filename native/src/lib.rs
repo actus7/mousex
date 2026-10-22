@@ -19,6 +19,7 @@ use windows_sys::Win32::{
         DataExchange::*,
         LibraryLoader::GetModuleHandleW,
         Memory::*,
+        SystemInformation::GetTickCount,
         Threading::{GetCurrentThread, GetCurrentThreadId, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL},
     },
     UI::{
@@ -37,6 +38,7 @@ mod access;
 mod clip_files;
 mod clip_image;
 mod display;
+mod resilience;
 pub use clip_image::{clip_from_png, dib_to_png, png_to_dib, Clip, MAX_CLIPBOARD_IMAGE_BYTES};
 
 #[derive(Clone)]
@@ -123,6 +125,8 @@ pub enum Event {
     Hotkey(Hotkey),
     /// Sessão bloqueada (Win+L, Ctrl+Alt+Del → Bloquear, inatividade).
     SessionLocked,
+    /// O Windows tinha removido os hooks em silêncio e eles foram reinstalados (`false`: não deu).
+    HooksRestored(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +154,7 @@ mod tray;
 pub use access::{as_standard_user, create_private_dir, free_space};
 pub use display::set_monitor_positions;
 pub use power::{keep_awake, lock_workstation};
+pub use resilience::KillOnCloseJob;
 pub use shell::{hide_console, run_elevated, show_message};
 pub use tray::{set_tray_status, start_tray, TrayStatus};
 
@@ -551,6 +556,7 @@ impl Injector {
             | Event::Tray(_)
             | Event::DisplayChange
             | Event::Hotkey(_)
+            | Event::HooksRestored(_)
             | Event::SessionLocked => return Err(io::Error::new(io::ErrorKind::InvalidInput, "evento só de captura")),
             Event::Key { scancode, extended, down } => {
                 input.r#type = INPUT_KEYBOARD;
@@ -593,6 +599,7 @@ impl Injector {
                     | Event::Tray(_)
                     | Event::DisplayChange
                     | Event::Hotkey(_)
+                    | Event::HooksRestored(_)
                     | Event::SessionLocked => unreachable!("tratado acima"),
                 };
                 input.Anonymous.mi =
@@ -663,6 +670,8 @@ static MODIFIERS: AtomicU8 = AtomicU8::new(0);
 static HOTKEY_LATCH: AtomicU16 = AtomicU16::new(0);
 /// Instante (GetTickCount) em que o cursor foi estacionado pela última vez.
 static PARK_TICK: AtomicU32 = AtomicU32::new(0);
+/// Hora (ms do sistema) do último evento que o hook de mouse viu: prova de que ele ainda está instalado.
+static LAST_HOOK_TICK: AtomicU32 = AtomicU32::new(0);
 
 fn publish(event: Event) -> bool {
     if let Some(sender) = SENDER.get() {
@@ -709,6 +718,7 @@ unsafe extern "system" fn mouse(code: i32, message: WPARAM, data: LPARAM) -> LRE
     if code == HC_ACTION as i32 {
         // SAFETY: com HC_ACTION, `data` aponta para MSLLHOOKSTRUCT válido durante o callback.
         let m = unsafe { &*(data as *const MSLLHOOKSTRUCT) };
+        LAST_HOOK_TICK.store(m.time, Ordering::Relaxed);
         if !is_own_input(m.dwExtraInfo) {
             let event = if let Some((button, down)) = mouse_button(message as u32, m.mouseData) {
                 Some(Event::Button { button, down })
@@ -771,12 +781,12 @@ impl Hooks {
                 let mut msg: MSG = std::mem::zeroed();
                 PeekMessageW(&mut msg, ptr::null_mut(), 0, 0, PM_NOREMOVE);
                 let module = GetModuleHandleW(ptr::null());
-                let kh = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), module, 0);
+                let mut kh = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), module, 0);
                 if kh.is_null() {
                     let _ = ready_tx.send(Err(io::Error::last_os_error()));
                     return Ok(());
                 }
-                let mh = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse), module, 0);
+                let mut mh = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse), module, 0);
                 if mh.is_null() {
                     let error = io::Error::last_os_error();
                     UnhookWindowsHookEx(kh);
@@ -793,10 +803,23 @@ impl Hooks {
                     WINEVENT_OUTOFCONTEXT,
                 );
                 let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+                // Timer da própria thread (WM_TIMER sem janela) para a checagem de vida dos hooks.
+                let timer = SetTimer(ptr::null_mut(), 0, resilience::HOOK_CHECK_MS, None);
+                let mut liveness = resilience::Liveness::default();
                 let result = loop {
                     match GetMessageW(&mut msg, ptr::null_mut(), 0, 0) {
                         -1 => break Err(io::Error::last_os_error()),
                         0 => break Ok(()),
+                        _ if msg.message == WM_TIMER && msg.hwnd.is_null() => {
+                            let last = LAST_HOOK_TICK.load(Ordering::Relaxed);
+                            if liveness.observe(current_cursor(), GetTickCount(), last) {
+                                UnhookWindowsHookEx(mh);
+                                UnhookWindowsHookEx(kh);
+                                kh = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), module, 0);
+                                mh = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse), module, 0);
+                                publish(Event::HooksRestored(!kh.is_null() && !mh.is_null()));
+                            }
+                        }
                         _ => {
                             TranslateMessage(&msg);
                             DispatchMessageW(&msg);
@@ -804,6 +827,9 @@ impl Hooks {
                     }
                 };
                 SUPPRESS.store(false, Ordering::Relaxed);
+                if timer != 0 {
+                    KillTimer(ptr::null_mut(), timer);
+                }
                 if !switch_hook.is_null() {
                     UnhookWinEvent(switch_hook);
                 }

@@ -470,6 +470,12 @@ impl State {
                 self.rebuild_layout();
                 log("this computer's monitors changed; layout reloaded");
             }
+            Event::HooksRestored(true) => log("Windows had removed the input hooks; reinstalled"),
+            Event::HooksRestored(false) => {
+                // Sem hooks o agente fica surdo: sair deixa o supervisor subir um processo novo.
+                log("Windows removed the input hooks and reinstalling failed; restarting the agent");
+                std::process::exit(1);
+            }
             Event::DesktopSwitch => {
                 // Bloqueio, Ctrl+Alt+Del ou UAC: os key-ups não virão; esquece o estado e volta para casa.
                 log("desktop switch: key state cleared");

@@ -244,6 +244,13 @@ The log file is `mousex.log`. Use the tray's **Open log** item, or `mousex statu
 
 Updates keep pairings, the layout, and the identity, so already-paired machines reconnect without a new code. `mousex update` finds the newest tag through the `/releases/latest` redirect, downloads the package, `SHA256SUMS` and `SHA256SUMS.sig` with the system `curl`, checks the Ed25519 signature (tag + sums) and the hash, unpacks with the system `tar`, swaps each binary keeping a `.old` copy, and runs `mousex version` on the new one. If that fails the `.old` files come back. On macOS the new binaries are re-signed with the local identity before the agent restarts.
 
+### Self-recovery
+
+- **Agent crash (Windows).** The scheduled task starts `mousex-agent run`, which only supervises: it runs the real agent as a child (`mousex-agent worker`) inside a kill-on-close job object and starts it again if it exits with an error (1 s after a stable run, doubling up to 30 s on repeated crashes). Ending the task kills both, so no orphan keeps the ports. On macOS, `launchd` (`KeepAlive`) does the same.
+- **Silently removed hooks (Windows).** Windows removes a low-level hook that takes too long, without telling the program. A timer on the hook thread checks every 2 s: if the cursor moves for two checks in a row and the mouse hook saw nothing, both hooks are installed again. If that fails, the agent exits and the supervisor starts a fresh one.
+- **Ports still held by the previous agent** (update, reinstall): the agent waits up to 15 s for them instead of exiting.
+- **Network and peers.** Clients reconnect with backoff and find the server again by mDNS, broadcast or the last known address. QUIC keep-alives detect a vanished peer within seconds; the cursor comes home and that machine becomes a wall.
+
 ## Design decisions
 
 - **QUIC with TLS 1.3** gives encryption, multiplexing, and datagrams in one protocol, without managing separate sockets.

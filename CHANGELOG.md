@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-10-22
+
+### Added
+
+- Windows: the agent restarts by itself if it crashes. The scheduled task now runs a small supervisor that keeps the real agent running (Task Scheduler only restarts tasks that fail to start, not ones that exit with an error).
+- Windows: if Windows silently removes the keyboard and mouse hooks (it does that to hooks that respond too slowly), MouseX notices within a few seconds and installs them again.
+
 ## [1.1.2] - 2026-10-22
 
 ### Fixed
@@ -85,7 +92,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/actus7/mousex/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/actus7/mousex/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/actus7/mousex/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/actus7/mousex/compare/v1.0.0...v1.1.0

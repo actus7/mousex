@@ -16,6 +16,8 @@ pub(crate) mod platform;
 pub(crate) mod platform;
 #[cfg(windows)]
 pub(crate) mod server;
+#[cfg(windows)]
+mod supervisor;
 pub(crate) mod update;
 
 use config::{Config, Role, data_dir};
@@ -87,6 +89,11 @@ pub fn cli_main() {
 
 /// `mousex-agent.exe`: o serviço em segundo plano iniciado pela tarefa no logon, sem janela.
 pub fn agent_main() {
+    // A tarefa inicia o vigia; ele inicia o agente de verdade com `worker` e o religa se cair.
+    #[cfg(windows)]
+    if std::env::args().nth(1).as_deref() != Some(supervisor::WORKER) {
+        return supervisor::supervise();
+    }
     if !platform::prepare() {
         log("warning: platform setup incomplete (DPI on Windows, Accessibility on Mac)");
     }
