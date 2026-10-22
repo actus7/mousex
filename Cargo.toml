@@ -20,7 +20,7 @@ sha2 = "0.10"
 thiserror = "2"
 rand = "0.8"
 x509-parser = "0.18"
-mdns-sd = "0.13"
+mdns-sd = "0.21"
 sys-locale = "0.3"
 
 [workspace.package]
