@@ -1,6 +1,6 @@
 //! `mousex update`: baixa a release mais nova, confere assinatura e hash, troca os binários e volta
-//! atrás se o novo não abrir. Windows: tarefa diária como SYSTEM. Mac: o agente chama a cada 24 h.
-//! `curl` e `tar` são os do sistema (Windows 10+ e macOS já trazem os dois).
+//! atrás se o novo não abrir. Windows: tarefa diária como SYSTEM. Mac e Linux: o agente chama a cada 24 h.
+//! `curl` e `tar` são os do sistema (Windows 10+, macOS e as distribuições comuns já trazem os dois).
 use crate::{
     config::{Config, data_dir},
     log,
@@ -27,11 +27,13 @@ const NULL: &str = "NUL";
 
 #[cfg(target_os = "macos")]
 const PACKAGE: &str = "MouseX-macos-universal.tar.gz";
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "linux")]
+const PACKAGE: &str = "MouseX-linux-x64.tar.gz";
+#[cfg(not(windows))]
 const FILES: &[&str] = &["mousex", "mousex-agent"];
-#[cfg(target_os = "macos")]
+#[cfg(not(windows))]
 const CLI: &str = "mousex";
-#[cfg(target_os = "macos")]
+#[cfg(not(windows))]
 const NULL: &str = "/dev/null";
 
 pub fn update() -> Result<(), Box<dyn Error>> {
@@ -49,11 +51,17 @@ pub fn update() -> Result<(), Box<dyn Error>> {
     let work = bin.join(".update");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(work.join("package"))?;
-    let result = download_and_verify(&tag, &work).and_then(|()| replace(&bin, &work.join("package"), &tag));
+    let verified = download_and_verify(&tag, &work);
+    let stopped = verified.is_ok();
+    let result = verified.and_then(|()| replace(&bin, &work.join("package"), &tag));
     let _ = std::fs::remove_dir_all(&work);
     match &result {
         Ok(()) => log(&format!("update: now running {tag}")),
         Err(error) => log(&format!("update to {tag} failed: {error}")),
+    }
+    // Por último: no Linux, reiniciar o serviço encerra também este processo (filho do agente).
+    if stopped {
+        start_agent();
     }
     result
 }
@@ -101,7 +109,6 @@ fn replace(bin: &Path, package: &Path, tag: &str) -> Result<(), Box<dyn Error>> 
         Ok(()) => record_version(tag),
         Err(_) => restore(bin, &moved),
     }
-    start_agent();
     healthy
 }
 
@@ -189,13 +196,13 @@ fn record_version(tag: &str) {
     );
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(windows))]
 fn record_version(_: &str) {}
 
-/// Mac: o agente roda `mousex update` 10 min depois de subir e depois a cada 24 h.
+/// Mac e Linux: o agente roda `mousex update` 10 min depois de subir e depois a cada 24 h.
 // ponytail: o sleep pausa com o Mac dormindo, então "24 h" pode virar mais; o reinício diário do agente
 // (logon) compensa. Agendar pelo launchd (StartCalendarInterval) se isso atrasar demais.
-#[cfg(target_os = "macos")]
+#[cfg(not(windows))]
 pub fn schedule() {
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(600));
@@ -208,13 +215,13 @@ pub fn schedule() {
     });
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(windows))]
 fn bin_dir() -> Result<PathBuf, Box<dyn Error>> {
     Ok(data_dir().join("bin"))
 }
 
-/// No Mac o agente é quem chamou o update: ele só reinicia no fim, por `launchctl kickstart -k`.
-#[cfg(target_os = "macos")]
+/// No Mac e no Linux o agente é quem chamou o update: ele só reinicia no fim.
+#[cfg(not(windows))]
 fn stop_agent() {}
 
 #[cfg(target_os = "macos")]
@@ -223,6 +230,15 @@ fn start_agent() {
         let _ = run("launchctl", &["kickstart", "-k", &format!("gui/{}/com.mousex.agent", uid.trim())]);
     }
 }
+
+/// O systemd encerra junto este `mousex update` (filho do agente); `update` chama isto por último.
+#[cfg(target_os = "linux")]
+fn start_agent() {
+    let _ = run("systemctl", &["--user", "--no-block", "restart", crate::install::SERVICE]);
+}
+
+#[cfg(target_os = "linux")]
+fn sign(_: &Path, _: &[&str]) {}
 
 /// Reassina com a identidade local do install.sh (mesma ordem dele): assinatura estável mantém a Acessibilidade.
 #[cfg(target_os = "macos")]

@@ -5,7 +5,7 @@
 <h1 align="center">MouseX</h1>
 
 <p align="center">
-  <b>One keyboard, one mouse, one clipboard for all your Windows and Mac computers.</b><br>
+  <b>One keyboard, one mouse, one clipboard for all your Windows, Mac and Linux computers.</b><br>
   Install once. Never touch it again.
 </p>
 
@@ -17,7 +17,7 @@
   <a href="https://github.com/actus7/mousex/actions/workflows/ci.yml"><img src="https://github.com/actus7/mousex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/actus7/mousex/releases/latest"><img src="https://img.shields.io/github/v/release/actus7/mousex" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License: MIT OR Apache-2.0">
-  <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-lightgrey" alt="Platforms: Windows and macOS">
+  <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platforms: Windows, macOS and Linux">
 </p>
 
 ---
@@ -30,14 +30,14 @@ MouseX treats your computers as one wide desk. Move the cursor past the edge of 
 
 ## Highlights
 
-- 🖱️ **Cursor crosses screen edges** between Windows and Mac, monitor by monitor.
+- 🖱️ **Cursor crosses screen edges** between Windows, Mac and Linux, monitor by monitor.
 - 🧭 **Arrange screens…** opens a visual editor. Drag screens to match your real desk.
-- 📋 **Clipboard sync** for text, images, and **files and folders**. Copy in Explorer, paste in Finder, and the other way around. Files up to 2 GB.
+- 📋 **Clipboard sync** for text, images, and **files and folders**. Copy in Explorer, paste in Finder or in your Linux file manager, and the other way around. Files up to 2 GB.
 - 🔐 **Paired and encrypted.** Each device has its own key. Pairing shows the same 6-digit code on both machines, and you confirm it on both.
 - 🔎 **No IP addresses.** Computers find each other on the local network.
 - 🔁 **Reconnects by itself** after sleep, reboots, and network changes.
 - ⌨️ **Keyboard-first controls** to jump between machines (see [Hotkeys](#hotkeys)).
-- 🎵 **Media keys** (play/pause, next, previous, volume, mute) work on the Mac too.
+- 🎵 **Media keys** (play/pause, next, previous, volume, mute) work on the Mac and on Linux too.
 - 🇧🇷 **ABNT2 and international keyboards** work through scan codes.
 - 🪶 **Light.** Written in Rust. Nothing runs in the background except the agent and a tray icon. The editor runs only while it is open.
 - 🕵️ **No cloud, no account, no telemetry.**
@@ -70,6 +70,20 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 2. Confirm the pairing code on the Mac and on the main computer.
 3. Done. MouseX starts at every login.
 
+### Linux
+
+Open a terminal and run, as your normal user (not with `sudo`):
+
+```bash
+curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh | bash
+```
+
+1. Confirm the pairing code on Linux and on the main computer.
+2. **Wayland only** (the default on Ubuntu, Fedora and KDE): right after the install, the system asks to allow remote control of this desktop. Allow it and choose to remember the choice, so it is not asked again at every login.
+3. Done. MouseX starts at every login.
+
+On an **X11** session MouseX works directly. On **Wayland** it uses the desktop's remote control permission (the RemoteDesktop portal with libei), which needs GNOME 46, KDE Plasma 6.1 or newer. Wayland support is **experimental**: please [report](https://github.com/actus7/mousex/issues) how it works on your desktop. If it does not work, log in with the "Xorg" or "X11" session.
+
 > **Install the main Windows PC first**, then the others. Each new machine asks for pairing once. After that, it is remembered.
 
 ### Updating and uninstalling
@@ -77,6 +91,7 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 - **Update:** automatic. Every computer checks for a new release once a day and installs it by itself, but only if it carries a valid MouseX signature. Pairings and your screen layout are kept. To pin a version, set `"auto_update": false` in `config.json` in the data folder; to update right away, run `mousex update`.
 - **Uninstall on Windows:** **Settings → Apps → MouseX**, or run `"C:\Program Files\MouseX\mousex.exe" uninstall` in an elevated terminal.
 - **Uninstall on macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
+- **Uninstall on Linux:** `~/.local/share/mousex/bin/mousex uninstall`
 
 ### Requirements
 
@@ -84,6 +99,7 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 |---|---|
 | **Windows** | Windows 10 or 11, x64 |
 | **macOS** | macOS 12 or newer, Apple Silicon or Intel |
+| **Linux** | x86_64 with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 or newer), systemd, `zenity` or `kdialog` for the pairing prompt. Wayland: GNOME 46 or KDE Plasma 6.1 or newer |
 | **Network** | All computers on the same local network, with no client isolation on Wi-Fi |
 | **Firewall** | UDP ports **41414** (connection) and **41415** (discovery) |
 
@@ -121,7 +137,7 @@ The tray menu offers the same actions: **Pause sharing**, **Lock cursor to scree
 
 ## How it works
 
-Your Windows PC with the physical keyboard and mouse is the **server**. Other Windows PCs and Macs are **clients**. Macs can only be clients for now.
+Your Windows PC with the physical keyboard and mouse is the **server**. Other Windows PCs, Macs and Linux computers are **clients**. Macs and Linux computers can only be clients for now.
 
 ```mermaid
 flowchart LR
@@ -138,6 +154,7 @@ flowchart LR
     subgraph Clients["Other computers (clients)"]
         W[Windows PC]
         M[Mac]
+        L[Linux]
     end
 
     K --> H
@@ -145,6 +162,8 @@ flowchart LR
     R -- "Keys, clicks, clipboard: QUIC streams" --> W
     R -- "Motion: QUIC datagrams" --> M
     R -- "Keys, clicks, clipboard: QUIC streams" --> M
+    R -- "Motion: QUIC datagrams" --> L
+    R -- "Keys, clicks, clipboard: QUIC streams" --> L
 ```
 
 - **Transport:** QUIC with TLS 1.3. Each device has its own key pair, and each paired device is remembered by its certificate fingerprint.
@@ -158,14 +177,14 @@ For the full picture, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## How MouseX compares
 
-MouseX is built for one job: a personal desk with a few Windows and Mac machines, set up once.
+MouseX is built for one job: a personal desk with a few Windows, Mac and Linux machines, set up once.
 
 | | MouseX | Synergy / Deskflow | Barrier / Input Leap | Microsoft Mouse Without Borders | Lan Mouse |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Open source | ✅ | Deskflow ✅ · Synergy ❌ | ✅ | ❌ | ✅ |
 | Windows | ✅ | ✅ | ✅ | ✅ | ✅ |
 | macOS | ✅ (client only) | ✅ | ✅ | – | ✅ |
-| Linux | ❌ not yet | ✅ | ✅ | ❌ | ✅ |
+| Linux | ✅ (client only; Wayland experimental) | ✅ | ✅ | ❌ | ✅ |
 | Mac as the main machine | ❌ not yet | ✅ | ✅ | – | – |
 | Setup without typing IP addresses | ✅ | – | – | – | – |
 | Clipboard files and folders | ✅ | – | – | – | – |
@@ -174,7 +193,7 @@ MouseX is built for one job: a personal desk with a few Windows and Mac machines
 
 Cells marked **–** are not claims either way. Check each project's documentation for details.
 
-**Limitations today:** no Linux, a Mac can only be a client, and you cannot drag and drop files between machines (copy and paste works). These are on the [roadmap](#roadmap).
+**Limitations today:** a Mac or a Linux computer can only be a client, Wayland support is experimental, and you cannot drag and drop files between machines (copy and paste works). These are on the [roadmap](#roadmap).
 
 ## Security
 
@@ -202,6 +221,9 @@ Grant **Accessibility** to `mousex-agent` in **System Settings → Privacy & Sec
 **My Mac is managed by my company (MDM).**
 Some companies block Accessibility permissions or LaunchAgents. If MouseX cannot start on the Mac, ask your IT team to allow `mousex-agent` for Accessibility and to allow the user LaunchAgent `com.mousex.agent`.
 
+**The cursor does not move on Linux.**
+Run `~/.local/share/mousex/bin/mousex status` and read the last lines of the log. On Wayland, check that you allowed remote control when the system asked; to be asked again, delete `~/.local/share/mousex/portal-token` and log in again. If your desktop is older than GNOME 46 or KDE Plasma 6.1, use the "Xorg" session.
+
 **My keys come out wrong on the Mac.**
 Brazilian ABNT2 keyboards work best with a Mac set to the **Brazilian – ABNT2** layout. MouseX shows a one-time hint if the Mac uses a different layout. Ctrl on Windows becomes Cmd on the Mac, so shortcuts like Ctrl+C work as Cmd+C.
 
@@ -211,6 +233,7 @@ MouseX detects monitor changes live. Open **Arrange screens…** from the tray t
 **Where are the logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`
 - macOS: `~/Library/Application Support/mousex/mousex.log`
+- Linux: `~/.local/share/mousex/mousex.log`
 
 **Does it work over the internet?**
 No. MouseX is designed for the local network. It does not use a relay server.
@@ -223,11 +246,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, the commands, and the 
 
 - **Windows:** **Settings → Apps → MouseX**, or `"C:\Program Files\MouseX\mousex.exe" uninstall`
 - **macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
+- **Linux:** `~/.local/share/mousex/bin/mousex uninstall`
 
 ## Roadmap
 
-- Linux support
-- A Mac as the main (server) computer
+- Wayland support confirmed on more desktops
+- A Mac or a Linux computer as the main (server) computer
 - Drag and drop of files between machines
 - Better keyboard layout support on Mac
 

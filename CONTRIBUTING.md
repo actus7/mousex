@@ -51,7 +51,12 @@ Contributions are welcome in **English or Portuguese**. Please follow the [Code 
    cargo build
    ```
 
-The Windows native backend (`mousex-native`) does not build on macOS, so the workspace commands below use `--exclude mousex-native` there.
+### Linux
+
+1. Install Rust stable with [rustup](https://rustup.rs/). No system libraries are needed: the X11, D-Bus and libei clients are pure Rust.
+2. For the X11 tests, install Xvfb (`sudo apt install xvfb` on Debian and Ubuntu) and run the tests under `xvfb-run -a`. Without a `DISPLAY` those tests return early.
+
+The Windows native backend (`mousex-native`) does not build on macOS or Linux, so the workspace commands below use `--exclude mousex-native` there.
 
 ## Checks to run before a pull request
 
@@ -63,7 +68,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-On macOS, add `--exclude mousex-native` to the clippy and test commands:
+On macOS and Linux, add `--exclude mousex-native` to the clippy and test commands (on Linux, run the tests under `xvfb-run -a`):
 
 ```bash
 cargo clippy --workspace --all-targets --exclude mousex-native -- -D warnings
@@ -95,7 +100,8 @@ The editor is a separate Cargo workspace, so the root commands above do not incl
 | `src/` | `mousex-core`: protocol, QUIC networking, pairing, discovery, screen layout, edge routing, keyboard maps |
 | `native/` | `mousex-native`: Windows backend (input hooks, injection, clipboard, tray, power, access checks, installer helpers) |
 | `platform-macos/` | `mousex-platform-macos`: macOS backend (CGEvent injection, displays, pasteboard, accessibility) |
-| `daemon/` | `mousex` crate: the `mousex` CLI, the `mousex-agent` background process, client and server logic, installers for Windows and macOS |
+| `platform-linux/` | `mousex-platform-linux`: Linux backend (XTest or RemoteDesktop portal with libei, RandR, X11 clipboard, dialogs) |
+| `daemon/` | `mousex` crate: the `mousex` CLI, the `mousex-agent` background process, client and server logic, installers for Windows, macOS and Linux |
 | `app/` | The **Arrange screens** editor (Tauri app with a React front end) |
 | `assets/` | Logo and icons |
 | `install/` | Install scripts that are delivered with the releases |
@@ -165,6 +171,7 @@ Unit tests cannot cover real input, the tray, or the network between computers. 
 5. Read the logs when something goes wrong:
    - Windows: `C:\ProgramData\MouseX\mousex.log`
    - macOS: `~/Library/Application Support/mousex/mousex.log`
+- Linux: `~/.local/share/mousex/mousex.log`
 
 When you report a bug, include the logs and the operating system versions. Remove anything private first.
 

@@ -5,8 +5,8 @@
 ## Checklist
 
 - [ ] `cargo fmt --all --check` passes
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes (on macOS, add `--exclude mousex-native`)
-- [ ] `cargo test --workspace` passes (on macOS, add `--exclude mousex-native`)
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes (on macOS and Linux, add `--exclude mousex-native`)
+- [ ] `cargo test --workspace` passes (on macOS and Linux, add `--exclude mousex-native`; on Linux, run under `xvfb-run -a`)
 - [ ] Editor checks pass if `app/` changed: `npm ci && npm test && npm run build`
 - [ ] New logic has tests
 - [ ] Documentation is updated where needed (README, README.pt-BR, docs/ARCHITECTURE.md, CHANGELOG under `Unreleased`)
@@ -19,6 +19,7 @@
 
 - [ ] Windows (version: )
 - [ ] macOS (version: )
+- [ ] Linux (distribution, desktop, X11 or Wayland: )
 - [ ] Not tested on real hardware (explain why)
 
 ## How was it tested?

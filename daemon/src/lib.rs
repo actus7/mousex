@@ -1,4 +1,6 @@
 pub(crate) mod client;
+#[cfg(not(windows))]
+pub(crate) mod client_install;
 pub(crate) mod clip;
 pub(crate) mod config;
 // Só o servidor (Windows) arruma as telas.
@@ -7,12 +9,18 @@ pub(crate) mod install;
 #[cfg(target_os = "macos")]
 #[path = "mac_install.rs"]
 pub(crate) mod install;
+#[cfg(target_os = "linux")]
+#[path = "linux_install.rs"]
+pub(crate) mod install;
 #[cfg(windows)]
 pub(crate) mod layout;
 #[cfg(windows)]
 pub(crate) mod platform;
 #[cfg(target_os = "macos")]
 #[path = "mac_platform.rs"]
+pub(crate) mod platform;
+#[cfg(target_os = "linux")]
+#[path = "linux_platform.rs"]
 pub(crate) mod platform;
 #[cfg(windows)]
 pub(crate) mod server;
@@ -95,9 +103,9 @@ pub fn agent_main() {
         return supervisor::supervise();
     }
     if !platform::prepare() {
-        log("warning: platform setup incomplete (DPI on Windows, Accessibility on Mac)");
+        log("warning: platform setup incomplete (DPI on Windows, Accessibility on Mac, no graphical session on Linux)");
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(not(windows))]
     update::schedule();
     if let Err(error) = run() {
         log(&format!("fatal error: {error}"));

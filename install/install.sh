@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# MouseX installer for macOS (client machine).
+# MouseX installer for macOS and Linux (client machine).
 #   curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh | bash
 # Optional environment variables:
 #   MOUSEX_VERSION  release tag to install, e.g. v1.0.0 (default: latest)
-#   MOUSEX_MACHINE  name of this Mac in MouseX (default: the ComputerName)
+#   MOUSEX_MACHINE  name of this computer in MouseX (default: the computer name)
 set -euo pipefail
 
 REPO_URL="https://github.com/actus7/mousex/releases"
+OS="$(uname -s)"
 ARCHIVE="MouseX-macos-universal.tar.gz"
+[ "$OS" = "Linux" ] && ARCHIVE="MouseX-linux-x64.tar.gz"
 SUMS="SHA256SUMS"
 # The legacy name is reused when present, so a Mac set up before the rename keeps its identity.
 LEGACY_IDENTITY="Sculpin Local Signing"
@@ -21,12 +23,24 @@ die() {
 }
 
 require_environment() {
-    [ "$(uname -s)" = "Darwin" ] || die "this installer is for macOS only (use install.ps1 on Windows)."
-    [ "$(id -u)" -ne 0 ] || die "run this as your normal user, not with sudo: the agent is a LaunchAgent."
+    local tools
+    case "$OS" in
+        Darwin) tools="curl shasum tar codesign security launchctl" ;;
+        Linux)
+            [ "$(uname -m)" = "x86_64" ] || die "MouseX for Linux is built for x86_64 only (this is $(uname -m))."
+            tools="curl sha256sum tar systemctl"
+            ;;
+        *) die "this installer is for macOS and Linux (use install.ps1 on Windows)." ;;
+    esac
+    [ "$(id -u)" -ne 0 ] || die "run this as your normal user, not with sudo: the agent runs in your session."
     local tool
-    for tool in curl shasum tar codesign security launchctl; do
+    for tool in $tools; do
         command -v "$tool" >/dev/null 2>&1 || die "required tool not found: $tool"
     done
+}
+
+sha256_of() {
+    if [ "$OS" = "Linux" ]; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print $1 }'
 }
 
 # Prints the 64-hex SHA-256 of the file, or nothing when there is no matching entry.
@@ -43,7 +57,7 @@ download_package() {
 
     expected="$(expected_sha256 "$dir/$SUMS" "$ARCHIVE")"
     [ -n "$expected" ] || die "$SUMS has no entry for $ARCHIVE."
-    actual="$(shasum -a 256 "$dir/$ARCHIVE" | awk '{ print $1 }')"
+    actual="$(sha256_of "$dir/$ARCHIVE")"
     if [ "$actual" != "$expected" ]; then
         die "SHA-256 mismatch for $ARCHIVE (expected $expected, got $actual). Nothing was installed."
     fi
@@ -110,6 +124,20 @@ install_mousex() {
     "$pkg/mousex" status || warn "'mousex status' reported a problem; see the output above."
 }
 
+explain_linux_next_steps() {
+    say ""
+    if ! command -v zenity >/dev/null 2>&1 && ! command -v kdialog >/dev/null 2>&1; then
+        warn "neither zenity nor kdialog is installed: MouseX cannot ask you to confirm the pairing code."
+        warn "install one with your package manager (for example: sudo apt install zenity) and run this again."
+    fi
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        say "MouseX is installed. The system now asks to allow remote control of this desktop:"
+        say "allow it and choose to remember the choice, so it is not asked again at the next login."
+    else
+        say "MouseX is installed and running. Nothing else to do."
+    fi
+}
+
 explain_next_steps() {
     local settings="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     local log="$HOME/Library/Application Support/mousex/mousex.log"
@@ -149,9 +177,14 @@ main() {
     tar -xzf "$tmp/$ARCHIVE" -C "$pkg"
     [ -x "$pkg/mousex" ] || die "mousex is missing from the package."
 
-    sign_binaries "$pkg"
-    install_mousex "$pkg"
-    explain_next_steps
+    if [ "$OS" = "Linux" ]; then
+        install_mousex "$pkg"
+        explain_linux_next_steps
+    else
+        sign_binaries "$pkg"
+        install_mousex "$pkg"
+        explain_next_steps
+    fi
 }
 
 main "$@"

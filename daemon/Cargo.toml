@@ -5,7 +5,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "MouseX: share one keyboard, mouse and clipboard across Windows and macOS computers."
+description = "MouseX: share one keyboard, mouse and clipboard across Windows, macOS and Linux computers."
 edition = "2024"
 
 [dependencies]
@@ -21,6 +21,9 @@ mousex-native = { path = "../native" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mousex-platform-macos = { path = "../platform-macos" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+mousex-platform-linux = { path = "../platform-linux" }
 
 [dev-dependencies]
 rand = "0.8"

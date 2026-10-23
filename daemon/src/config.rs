@@ -43,7 +43,8 @@ pub fn user_data_dir() -> PathBuf {
     dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("mousex")
 }
 
-/// Pasta do usuário de quando o programa se chamava Sculpin (só para migrar).
+/// Pasta do usuário de quando o programa se chamava Sculpin (só para migrar; o Linux nunca teve Sculpin).
+#[cfg(not(target_os = "linux"))]
 pub fn legacy_user_data_dir() -> PathBuf {
     dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("sculpin")
 }

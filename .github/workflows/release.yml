@@ -1,4 +1,4 @@
-# Release pipeline: builds the Windows and macOS packages and publishes them on a `v*` tag.
+# Release pipeline: builds the Windows, macOS and Linux packages and publishes them on a `v*` tag.
 # workflow_dispatch builds the packages as artifacts without publishing anything.
 name: Release
 
@@ -130,11 +130,43 @@ jobs:
           path: MouseX-macos-universal.tar.gz
           if-no-files-found: error
 
+  linux:
+    name: Linux x64 package
+    # The oldest supported runner: binaries built against its glibc (2.35) run on newer distributions too.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked -p mousex
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/MouseX-linux-x64"
+          mkdir -p "$stage"
+          install -m 755 target/release/mousex target/release/mousex-agent "$stage/"
+          cp LICENSE-MIT LICENSE-APACHE README.md "$stage/"
+          tar -czf MouseX-linux-x64.tar.gz -C "$stage" \
+            mousex mousex-agent LICENSE-MIT LICENSE-APACHE README.md
+          tar -tzf MouseX-linux-x64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MouseX-linux-x64
+          path: MouseX-linux-x64.tar.gz
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
     # Never publish from workflow_dispatch: its ref is a branch, not a version tag.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, macos]
+    needs: [windows, macos, linux]
     runs-on: ubuntu-latest
     # The signing key lives only in this environment: it needs the maintainer's approval per run and
     # accepts only v* tags, so a workflow change merged by mistake cannot reach the key on its own.
@@ -156,7 +188,8 @@ jobs:
           set -euo pipefail
           cp install/install.ps1 install/install.sh dist/
           cd dist
-          sha256sum MouseX-windows-x64.zip MouseX-macos-universal.tar.gz install.ps1 install.sh > SHA256SUMS
+          sha256sum MouseX-windows-x64.zip MouseX-macos-universal.tar.gz MouseX-linux-x64.tar.gz \
+            install.ps1 install.sh > SHA256SUMS
           cat SHA256SUMS
 
       # Auto-update installs only what this key signed. The tag is part of the signed text, so an
@@ -214,6 +247,7 @@ jobs:
             "${notes[@]}" \
             dist/MouseX-windows-x64.zip \
             dist/MouseX-macos-universal.tar.gz \
+            dist/MouseX-linux-x64.tar.gz \
             dist/install.ps1 \
             dist/install.sh \
             dist/SHA256SUMS \

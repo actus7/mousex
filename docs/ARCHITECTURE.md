@@ -9,12 +9,14 @@ flowchart TB
     core["mousex-core (src/)<br/>protocol, QUIC, pairing, discovery,<br/>layout, router, keymap"]
     native["mousex-native (native/)<br/>Windows: hooks, injection, clipboard,<br/>tray, power, access checks"]
     macos["mousex-platform-macos (platform-macos/)<br/>macOS: CGEvent, displays,<br/>pasteboard, accessibility"]
+    linux["mousex-platform-linux (platform-linux/)<br/>Linux: XTest or portal + libei,<br/>RandR, X11 clipboard, dialogs"]
     daemon["mousex (daemon/)<br/>binaries: mousex (CLI), mousex-agent<br/>client, server, installers"]
     app["mousex-app (app/src-tauri/)<br/>Arrange screens editor<br/>(separate Cargo workspace)"]
 
     daemon --> core
     daemon -. "Windows only" .-> native
     daemon -. "macOS only" .-> macos
+    daemon -. "Linux only" .-> linux
     native --> core
     macos --> core
     app -- "reads and writes layout.json" --> core
@@ -22,10 +24,11 @@ flowchart TB
 
 | Crate | Path | Responsibility |
 |---|---|---|
-| `mousex-core` | `src/` | Platform-independent logic: the wire protocol (`proto.rs`), QUIC endpoints and certificate handling (`net.rs`), device identity (`identity.rs`), pairing codes and the allowlist (`pairing.rs`), discovery (`discovery.rs`), screen layout and edge routing (`router.rs`), and key maps between Windows, HID, and macOS (`keymap.rs`). |
+| `mousex-core` | `src/` | Platform-independent logic: the wire protocol (`proto.rs`), QUIC endpoints and certificate handling (`net.rs`), device identity (`identity.rs`), pairing codes and the allowlist (`pairing.rs`), discovery (`discovery.rs`), screen layout and edge routing (`router.rs`), and key maps between Windows, HID, macOS and Linux evdev (`keymap.rs`). |
 | `mousex-native` | `native/` | Windows backend. Low-level keyboard and mouse hooks that never block, input injection, clipboard (text, DIB and PNG images, file lists), the tray icon and menu, power and session events, access checks, and helpers for the installer. |
 | `mousex-platform-macos` | `platform-macos/` | macOS backend. Event injection with CoreGraphics, display detection, pasteboard access (text, PNG, TIFF), accessibility checks, and the keyboard-layout check. |
-| `mousex` | `daemon/` | The product itself. The `mousex` CLI, the `mousex-agent` background process, the client and server state machines, clipboard and file transfer (`clip.rs`), the Windows installer (`install.rs`), and the macOS installer (`mac_install.rs`). |
+| `mousex-platform-linux` | `platform-linux/` | Linux backend. Input injection with XTest on X11, or with the RemoteDesktop portal and libei on Wayland, display detection with RandR, the X11 clipboard (text, PNG, file lists) with XFixes change notifications, and the pairing dialog, lock and keep-awake through `zenity`/`kdialog`, `loginctl` and D-Bus. |
+| `mousex` | `daemon/` | The product itself. The `mousex` CLI, the `mousex-agent` background process, the client and server state machines, clipboard and file transfer (`clip.rs`), the Windows installer (`install.rs`), and the macOS and Linux installers (`mac_install.rs`, `linux_install.rs`, sharing `client_install.rs`). |
 | `mousex-app` | `app/src-tauri/` | The **Arrange screens** editor: a Tauri window with a React front end (`app/src/`). It only runs while open. It is a separate Cargo workspace. |
 
 Platform-specific code is isolated behind traits. The daemon has a `Platform` trait for the client side (keys, buttons, motion, clipboard, lock, keep-awake, monitors), and the server has its own event loop that consumes hook events.
@@ -68,10 +71,27 @@ flowchart LR
 - **Signing.** The installer signs the binaries with a local self-signed identity, so macOS keeps the Accessibility permission across updates.
 - The macOS build is **client only**. It can receive the cursor, keys, clipboard and files, and it can lock its own screen.
 
+### Linux
+
+```mermaid
+flowchart LR
+    login(["User logs on"]) --> autostart["Autostart entry<br/>~/.config/autostart/mousex.desktop"]
+    autostart --> service["systemd user service<br/>mousex.service"]
+    service --> agent["mousex-agent<br/>user process"]
+    agent --> net["QUIC endpoint<br/>UDP 41414"]
+    agent --> disc["Discovery<br/>UDP 41415 and mDNS"]
+    agent --> inject["XTest (X11) or<br/>RemoteDesktop portal + libei (Wayland)"]
+```
+
+- **Autostart entry.** Desktops run `~/.config/autostart/mousex.desktop` at login (GNOME, KDE, XFCE, Cinnamon and others). It passes `DISPLAY` and `WAYLAND_DISPLAY` to the systemd user manager and starts `mousex.service`, which restarts the agent if it exits. No administrator rights.
+- **X11.** Keys, motion, buttons and the wheel go through XTest; screens come from RandR.
+- **Wayland.** XTest would reach only XWayland windows, so the agent opens a RemoteDesktop portal session and talks libei (`ConnectToEIS`, portal version 2: GNOME 46, KDE Plasma 6.1 or newer). The desktop asks the user once; the restore token is kept in `portal-token` so later sessions start without asking. If the session ends (permission revoked, compositor restarted), the agent exits and systemd starts a fresh one. Without the portal, the agent falls back to XTest and logs why. Screens and the clipboard still come from XWayland, which mirrors the compositor's.
+- The Linux build is **client only**, like macOS.
+
 ## Roles and state machines
 
 - **Server** (Windows only): owns the physical keyboard and mouse. It accepts paired clients, tracks which machine the cursor is on, and sends `Enter`, `Leave`, keys, clicks, wheel events, and clipboard requests.
-- **Client** (Windows or macOS): connects to the server, announces its name and monitors with `Hello`, and applies what the server sends. It reconnects with backoff starting at 250 ms and capped at 2 s. A connection that stayed up for at least 5 s resets the backoff. When the link drops, it releases every held key and button.
+- **Client** (Windows, macOS or Linux): connects to the server, announces its name and monitors with `Hello`, and applies what the server sends. It reconnects with backoff starting at 250 ms and capped at 2 s. A connection that stayed up for at least 5 s resets the backoff. When the link drops, it releases every held key and button.
 
 ## Wire protocol
 
@@ -213,18 +233,19 @@ sequenceDiagram
 
 ## Data locations
 
-| Item | Windows (installed) | macOS |
-|---|---|---|
-| Data folder | `C:\ProgramData\MouseX` | `~/Library/Application Support/mousex` |
-| Who can write | Administrators only | The user |
-| Identity (certificate and key) | `identity.der`, `identity.pk8` | same |
-| Paired devices | `allowlist.json` | same |
-| Screen layout | `layout.json` | same |
-| Last server address | `last_server.json` | same |
-| Settings (role, machine name, pinned server) | `config.json` | same |
-| Log | `mousex.log`; when it passes about 1 MB, it is renamed to `mousex.log.old` and a new one starts | same |
-| Installed binaries | `C:\Program Files\MouseX` | `~/Library/Application Support/mousex/bin` |
-| Received files and folders | `recebidos` inside the data folder, one new subfolder per transfer; the two most recent are kept | same |
+| Item | Windows (installed) | macOS | Linux |
+|---|---|---|---|
+| Data folder | `C:\ProgramData\MouseX` | `~/Library/Application Support/mousex` | `~/.local/share/mousex` |
+| Who can write | Administrators only | The user | The user |
+| Identity (certificate and key) | `identity.der`, `identity.pk8` | same | same |
+| Paired devices | `allowlist.json` | same | same |
+| Screen layout | `layout.json` | same | same |
+| Last server address | `last_server.json` | same | same |
+| Settings (role, machine name, pinned server) | `config.json` | same | same |
+| Wayland permission (restore token) | – | – | `portal-token` |
+| Log | `mousex.log`; when it passes about 1 MB, it is renamed to `mousex.log.old` and a new one starts | same | same |
+| Installed binaries | `C:\Program Files\MouseX` | `~/Library/Application Support/mousex/bin` | `~/.local/share/mousex/bin` |
+| Received files and folders | `recebidos` inside the data folder, one new subfolder per transfer; the two most recent are kept | same | same |
 
 Before an install, a Windows user's data folder is `%APPDATA%\mousex`. The installer moves `identity.der`, `identity.pk8`, `allowlist.json`, `layout.json` and `last_server.json` to `ProgramData` and keeps the pairings. Data from older builds that used the name Sculpin is migrated the same way, but only from a folder that is protected like the new one.
 
@@ -232,21 +253,21 @@ The log file is `mousex.log`. Use the tray's **Open log** item, or `mousex statu
 
 ## Installers
 
-| Step | Windows | macOS |
-|---|---|---|
-| Admin rights | Yes (UAC) | No |
-| Binaries | Copied to `C:\Program Files\MouseX` | Copied to `~/Library/Application Support/mousex/bin` |
-| Autostart | Scheduled task `MouseX`, at logon, elevated | LaunchAgent `com.mousex.agent` |
-| Firewall | Rule `MouseX`, UDP 41414 and 41415, remote `localsubnet` | Not applicable |
-| Permission | None extra | Accessibility for `mousex-agent` |
-| Update | Task `MouseX Update` as SYSTEM, daily and 10 min after boot | The agent runs `mousex update` 10 min after start, then every 24 h |
-| Uninstall | Settings → Apps, or `mousex uninstall` | `mousex uninstall` |
+| Step | Windows | macOS | Linux |
+|---|---|---|---|
+| Admin rights | Yes (UAC) | No | No |
+| Binaries | Copied to `C:\Program Files\MouseX` | Copied to `~/Library/Application Support/mousex/bin` | Copied to `~/.local/share/mousex/bin` |
+| Autostart | Scheduled task `MouseX`, at logon, elevated | LaunchAgent `com.mousex.agent` | Autostart entry `mousex.desktop` starting the systemd user service `mousex.service` |
+| Firewall | Rule `MouseX`, UDP 41414 and 41415, remote `localsubnet` | Not applicable | Not changed (most desktop distributions allow outgoing UDP) |
+| Permission | None extra | Accessibility for `mousex-agent` | Wayland only: remote control, asked once by the desktop |
+| Update | Task `MouseX Update` as SYSTEM, daily and 10 min after boot | The agent runs `mousex update` 10 min after start, then every 24 h | Same as macOS; the agent restarts through systemd |
+| Uninstall | Settings → Apps, or `mousex uninstall` | `mousex uninstall` | `mousex uninstall` |
 
 Updates keep pairings, the layout, and the identity, so already-paired machines reconnect without a new code. `mousex update` finds the newest tag through the `/releases/latest` redirect, downloads the package, `SHA256SUMS` and `SHA256SUMS.sig` with the system `curl`, checks the Ed25519 signature (tag + sums) and the hash, unpacks with the system `tar`, swaps each binary keeping a `.old` copy, and runs `mousex version` on the new one. If that fails the `.old` files come back. On macOS the new binaries are re-signed with the local identity before the agent restarts.
 
 ### Self-recovery
 
-- **Agent crash (Windows).** The scheduled task starts `mousex-agent run`, which only supervises: it runs the real agent as a child (`mousex-agent worker`) inside a kill-on-close job object and starts it again if it exits with an error (1 s after a stable run, doubling up to 30 s on repeated crashes). Ending the task kills both, so no orphan keeps the ports. On macOS, `launchd` (`KeepAlive`) does the same.
+- **Agent crash (Windows).** The scheduled task starts `mousex-agent run`, which only supervises: it runs the real agent as a child (`mousex-agent worker`) inside a kill-on-close job object and starts it again if it exits with an error (1 s after a stable run, doubling up to 30 s on repeated crashes). Ending the task kills both, so no orphan keeps the ports. On macOS, `launchd` (`KeepAlive`) does the same; on Linux, systemd (`Restart=always`).
 - **Silently removed hooks (Windows).** Windows removes a low-level hook that takes too long, without telling the program. A timer on the hook thread checks every 2 s: if the cursor moves for two checks in a row and the mouse hook saw nothing, both hooks are installed again. If that fails, the agent exits and the supervisor starts a fresh one.
 - **Ports still held by the previous agent** (update, reinstall): the agent waits up to 15 s for them instead of exiting.
 - **Network and peers.** Clients reconnect with backoff and find the server again by mDNS, broadcast or the last known address. QUIC keep-alives detect a vanished peer within seconds; the cursor comes home and that machine becomes a wall.

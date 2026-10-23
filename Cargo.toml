@@ -31,7 +31,7 @@ authors = ["Alex Schmitt"]
 rust-version = "1.88"
 
 [workspace]
-members = [".", "native", "daemon", "platform-macos"]
+members = [".", "native", "daemon", "platform-macos", "platform-linux"]
 resolver = "3"
 
 [profile.release]

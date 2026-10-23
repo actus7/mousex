@@ -58,6 +58,29 @@ jobs:
       - name: Test
         run: cargo test --workspace --exclude mousex-native --locked
 
+  linux:
+    name: Linux (client)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Xvfb gives the X11 tests (XTest, RandR, clipboard) a real X server.
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb xauth
+
+      - name: Clippy
+        run: cargo clippy --workspace --exclude mousex-native --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: xvfb-run -a cargo test --workspace --exclude mousex-native --locked
+
   editor-web:
     name: Editor (web part)
     runs-on: ubuntu-latest

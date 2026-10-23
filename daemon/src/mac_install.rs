@@ -1,12 +1,13 @@
 //! Instalação no macOS: binários no Application Support do usuário e LaunchAgent (sem administrador).
-use crate::config::{Config, Role, data_dir};
+use crate::{
+    client_install::{AGENT, copy_binaries, machine_from_args, print_status, save_config},
+    config::data_dir,
+};
 use std::{error::Error, path::PathBuf, process::Command};
 
 const LABEL: &str = "com.mousex.agent";
 /// Serviço de quando o programa se chamava Sculpin.
 const LEGACY_LABEL: &str = "com.sculpin.agent";
-const CLI: &str = "mousex";
-const AGENT: &str = "mousex-agent";
 
 fn command(program: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new(program).args(args).output().map_err(|e| format!("{program}: {e}"))?;
@@ -46,39 +47,14 @@ fn escape(text: &str) -> String {
 
 /// Cliente no Mac: `--role client [--machine NOME]`.
 pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
-    let mut machine =
+    let default =
         command("scutil", &["--get", "ComputerName"]).map(|s| s.trim().to_string()).unwrap_or_else(|_| "mac".into());
-    let mut rest = args.iter();
-    while let Some(flag) = rest.next() {
-        match (flag.as_str(), rest.next().map(String::as_str)) {
-            ("--role", Some("client")) => {}
-            ("--role", Some(_)) => return Err("on macOS only the client role is available".into()),
-            ("--machine", Some(name)) if !name.trim().is_empty() => machine = name.trim().into(),
-            _ => return Err("uso: mousex install --role client [--machine NOME]".into()),
-        }
-    }
+    let machine = machine_from_args(args, default, "macOS")?;
     migrate_legacy()?;
     let data = data_dir();
     let bin = data.join("bin");
-    std::fs::create_dir_all(&bin)?;
-    let source = std::env::current_exe()?.parent().map(PathBuf::from).ok_or("executable folder unavailable")?;
-    for name in [CLI, AGENT] {
-        let (from, to) = (source.join(name), bin.join(name));
-        if from != to {
-            // Remover antes de copiar: sobrescrever um binário assinado em uso invalida a assinatura em cache.
-            let _ = std::fs::remove_file(&to);
-            std::fs::copy(&from, &to)?;
-        }
-    }
-    let previous = Config::load(&data).filter(|c| c.role == Role::Client);
-    let config = Config {
-        role: Role::Client,
-        machine: machine.clone(),
-        server_fingerprint: previous.as_ref().and_then(|c| c.server_fingerprint.clone()),
-        auto_update: previous.as_ref().is_none_or(|c| c.auto_update),
-        remap_modifiers: previous.is_none_or(|c| c.remap_modifiers),
-    };
-    config.save(&data)?;
+    copy_binaries(&bin)?;
+    save_config(&machine)?;
     let agent = escape(&bin.join(AGENT).display().to_string());
     let errors = escape(&data.join("agent.err").display().to_string());
     let plist = format!(
@@ -119,24 +95,12 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn status() -> Result<(), Box<dyn Error>> {
-    match Config::load(&data_dir()) {
-        Some(config) => println!(
-            "role: {:?}, computer: {}, paired server: {}",
-            config.role,
-            config.machine,
-            config.server_fingerprint.as_deref().map_or("none", |fp| &fp[..16.min(fp.len())])
-        ),
-        None => println!("not configured"),
-    }
     let state = command("launchctl", &["print", &format!("{}/{LABEL}", domain()?)]).unwrap_or_else(|e| e);
-    for line in state.lines().filter(|l| l.contains("state =") || l.contains("pid =") || l.contains("last exit")) {
-        println!("{}", line.trim());
-    }
-    if let Ok(log) = std::fs::read_to_string(data_dir().join("mousex.log")) {
-        let lines: Vec<&str> = log.lines().collect();
-        for line in &lines[lines.len().saturating_sub(15)..] {
-            println!("{line}");
-        }
-    }
+    let service: Vec<&str> = state
+        .lines()
+        .filter(|l| l.contains("state =") || l.contains("pid =") || l.contains("last exit"))
+        .map(str::trim)
+        .collect();
+    print_status(&service.join("\n"));
     Ok(())
 }

@@ -39,7 +39,7 @@ body:
       options:
         - Windows
         - macOS
-        - Linux (not supported yet)
+        - Linux
         - All of them
         - Not sure
 

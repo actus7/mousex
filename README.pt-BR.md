@@ -5,7 +5,7 @@
 <h1 align="center">MouseX</h1>
 
 <p align="center">
-  <b>Um teclado, um mouse e uma área de transferência para todos os seus computadores Windows e Mac.</b><br>
+  <b>Um teclado, um mouse e uma área de transferência para todos os seus computadores Windows, Mac e Linux.</b><br>
   Instale uma vez. Depois você nem lembra que ele existe.
 </p>
 
@@ -17,7 +17,7 @@
   <a href="https://github.com/actus7/mousex/actions/workflows/ci.yml"><img src="https://github.com/actus7/mousex/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/actus7/mousex/releases/latest"><img src="https://img.shields.io/github/v/release/actus7/mousex" alt="Última versão"></a>
   <img src="https://img.shields.io/badge/licença-MIT%20OR%20Apache--2.0-blue" alt="Licença: MIT OR Apache-2.0">
-  <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20macOS-lightgrey" alt="Plataformas: Windows e macOS">
+  <img src="https://img.shields.io/badge/plataformas-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Plataformas: Windows, macOS e Linux">
 </p>
 
 ---
@@ -30,14 +30,14 @@ O MouseX trata seus computadores como uma mesa larga só. Leve o cursor além da
 
 ## Destaques
 
-- 🖱️ **O cursor atravessa as bordas das telas** entre Windows e Mac, monitor por monitor.
+- 🖱️ **O cursor atravessa as bordas das telas** entre Windows, Mac e Linux, monitor por monitor.
 - 🧭 **Arrumar telas…** abre um editor visual. Arraste as telas para combinar com a sua mesa de verdade.
-- 📋 **Área de transferência sincronizada** para texto, imagens e **arquivos e pastas**. Copie no Explorador e cole no Finder, e vice-versa. Arquivos de até 2 GB.
+- 📋 **Área de transferência sincronizada** para texto, imagens e **arquivos e pastas**. Copie no Explorador e cole no Finder ou no gerenciador de arquivos do Linux, e vice-versa. Arquivos de até 2 GB.
 - 🔐 **Pareado e criptografado.** Cada dispositivo tem a sua própria chave. O pareamento mostra o mesmo código de 6 dígitos nas duas máquinas, e você confirma nas duas.
 - 🔎 **Sem endereços IP.** Os computadores se encontram na rede local.
 - 🔁 **Reconecta sozinho** depois de suspensão, reinicializações e mudanças de rede.
 - ⌨️ **Controles pelo teclado** para pular de uma máquina para outra (veja [Atalhos](#atalhos)).
-- 🎵 **Teclas de mídia** (play/pause, próxima, anterior, volume, mudo) funcionam também no Mac.
+- 🎵 **Teclas de mídia** (play/pause, próxima, anterior, volume, mudo) funcionam também no Mac e no Linux.
 - 🇧🇷 **Teclados ABNT2 e internacionais** funcionam por código de varredura.
 - 🪶 **Leve.** Escrito em Rust. Nada roda em segundo plano além do agente e de um ícone na bandeja. O editor só roda enquanto está aberto.
 - 🕵️ **Sem nuvem, sem conta, sem telemetria.**
@@ -70,6 +70,20 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 2. Confirme o código de pareamento no Mac e no computador principal.
 3. Pronto. O MouseX inicia a cada login.
 
+### Linux
+
+Abra um terminal e execute, com o seu usuário normal (sem `sudo`):
+
+```bash
+curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh | bash
+```
+
+1. Confirme o código de pareamento no Linux e no computador principal.
+2. **Só no Wayland** (o padrão no Ubuntu, Fedora e KDE): logo depois da instalação, o sistema pede para permitir o controle remoto desta área de trabalho. Permita e marque para lembrar a escolha, para não ser perguntado a cada login.
+3. Pronto. O MouseX inicia a cada login.
+
+Numa sessão **X11** o MouseX funciona direto. No **Wayland** ele usa a permissão de controle remoto da área de trabalho (o portal RemoteDesktop com libei), que precisa do GNOME 46, do KDE Plasma 6.1 ou mais novos. O suporte a Wayland é **experimental**: [conte](https://github.com/actus7/mousex/issues) como funcionou no seu ambiente. Se não funcionar, entre na sessão "Xorg" ou "X11".
+
 > **Instale primeiro o PC Windows principal**, depois os outros. Cada máquina nova pede o pareamento uma vez. Depois disso, ela fica lembrada.
 
 ### Atualizar e desinstalar
@@ -77,6 +91,7 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 - **Atualizar:** é automático. Cada computador procura uma versão nova uma vez por dia e instala sozinho, mas só se ela tiver uma assinatura válida do MouseX. Os pareamentos e o layout de telas são mantidos. Para travar a versão, ponha `"auto_update": false` no `config.json` da pasta de dados; para atualizar na hora, rode `mousex update`.
 - **Desinstalar no Windows:** **Configurações → Aplicativos → MouseX**, ou execute `"C:\Program Files\MouseX\mousex.exe" uninstall` em um terminal elevado.
 - **Desinstalar no macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
+- **Desinstalar no Linux:** `~/.local/share/mousex/bin/mousex uninstall`
 
 ### Requisitos
 
@@ -84,6 +99,7 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 |---|---|
 | **Windows** | Windows 10 ou 11, x64 |
 | **macOS** | macOS 12 ou mais recente, Apple Silicon ou Intel |
+| **Linux** | x86_64 com glibc 2.35 ou mais nova (Ubuntu 22.04, Debian 12, Fedora 36 ou mais novos), systemd, `zenity` ou `kdialog` para a confirmação do pareamento. Wayland: GNOME 46 ou KDE Plasma 6.1 ou mais novos |
 | **Rede** | Todos os computadores na mesma rede local, sem isolamento de clientes no Wi-Fi |
 | **Firewall** | Portas UDP **41414** (conexão) e **41415** (descoberta) |
 
@@ -121,7 +137,7 @@ O menu da bandeja oferece as mesmas ações: **Pausar compartilhamento**, **Pren
 
 ## Como funciona
 
-O PC Windows principal, que tem o teclado e o mouse físicos, é o **servidor**. Os outros PCs Windows e os Macs são **clientes**. Por enquanto, um Mac só pode ser cliente.
+O PC Windows principal, que tem o teclado e o mouse físicos, é o **servidor**. Os outros PCs Windows, os Macs e os computadores Linux são **clientes**. Por enquanto, Mac e Linux só podem ser clientes.
 
 ```mermaid
 flowchart LR
@@ -138,6 +154,7 @@ flowchart LR
     subgraph Clientes["Outros computadores (clientes)"]
         W[PC Windows]
         M[Mac]
+        L[Linux]
     end
 
     K --> H
@@ -145,6 +162,8 @@ flowchart LR
     R -- "Teclas, cliques, área de transferência: streams QUIC" --> W
     R -- "Movimento: datagramas QUIC" --> M
     R -- "Teclas, cliques, área de transferência: streams QUIC" --> M
+    R -- "Movimento: datagramas QUIC" --> L
+    R -- "Teclas, cliques, área de transferência: streams QUIC" --> L
 ```
 
 - **Transporte:** QUIC com TLS 1.3. Cada dispositivo tem o seu próprio par de chaves, e cada dispositivo pareado é lembrado pela impressão digital do certificado.
@@ -158,14 +177,14 @@ Para o quadro completo, leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Comparação com outras soluções
 
-O MouseX faz uma coisa só: uma mesa pessoal com algumas máquinas Windows e Mac, configurada uma vez.
+O MouseX faz uma coisa só: uma mesa pessoal com algumas máquinas Windows, Mac e Linux, configurada uma vez.
 
 | | MouseX | Synergy / Deskflow | Barrier / Input Leap | Microsoft Mouse Without Borders | Lan Mouse |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Código aberto | ✅ | Deskflow ✅ · Synergy ❌ | ✅ | ❌ | ✅ |
 | Windows | ✅ | ✅ | ✅ | ✅ | ✅ |
 | macOS | ✅ (só cliente) | ✅ | ✅ | – | ✅ |
-| Linux | ❌ ainda não | ✅ | ✅ | ❌ | ✅ |
+| Linux | ✅ (só cliente; Wayland experimental) | ✅ | ✅ | ❌ | ✅ |
 | Mac como máquina principal | ❌ ainda não | ✅ | ✅ | – | – |
 | Configuração sem digitar IP | ✅ | – | – | – | – |
 | Arquivos e pastas na área de transferência | ✅ | – | – | – | – |
@@ -174,7 +193,7 @@ O MouseX faz uma coisa só: uma mesa pessoal com algumas máquinas Windows e Mac
 
 As células com **–** não são afirmações em nenhum sentido. Consulte a documentação de cada projeto para detalhes.
 
-**Limitações de hoje:** sem Linux, um Mac só pode ser cliente, e não dá para arrastar e soltar arquivos entre máquinas (copiar e colar funciona). Esses itens estão no [roadmap](#roadmap).
+**Limitações de hoje:** Mac e Linux só podem ser clientes, o suporte a Wayland é experimental, e não dá para arrastar e soltar arquivos entre máquinas (copiar e colar funciona). Esses itens estão no [roadmap](#roadmap).
 
 ## Segurança
 
@@ -202,6 +221,9 @@ Conceda **Acessibilidade** ao `mousex-agent` em **Ajustes do Sistema → Privaci
 **Meu Mac é gerenciado pela empresa (MDM).**
 Algumas empresas bloqueiam permissões de Acessibilidade ou LaunchAgents. Se o MouseX não iniciar no Mac, peça ao time de TI para permitir o `mousex-agent` em Acessibilidade e o LaunchAgent de usuário `com.mousex.agent`.
 
+**O cursor não se move no Linux.**
+Rode `~/.local/share/mousex/bin/mousex status` e leia as últimas linhas do log. No Wayland, confira se você permitiu o controle remoto quando o sistema perguntou; para ser perguntado de novo, apague `~/.local/share/mousex/portal-token` e entre de novo na sessão. Se o seu ambiente for mais antigo que o GNOME 46 ou o KDE Plasma 6.1, use a sessão "Xorg".
+
 **As teclas saem trocadas no Mac.**
 Teclados ABNT2 funcionam melhor com o Mac configurado para o layout **Português – ABNT2**. O MouseX mostra uma dica, uma única vez, se o Mac usar outro layout. Ctrl do Windows vira Cmd no Mac, então atalhos como Ctrl+C funcionam como Cmd+C.
 
@@ -211,6 +233,7 @@ O MouseX detecta mudanças de monitor em tempo real. Abra **Arrumar telas…** n
 **Onde ficam os logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`
 - macOS: `~/Library/Application Support/mousex/mousex.log`
+- Linux: `~/.local/share/mousex/mousex.log`
 
 **Funciona pela internet?**
 Não. O MouseX foi feito para a rede local. Ele não usa servidor de repasse.
@@ -223,11 +246,12 @@ Veja [CONTRIBUTING.md](CONTRIBUTING.md) para a toolchain, os comandos e a organi
 
 - **Windows:** **Configurações → Aplicativos → MouseX**, ou `"C:\Program Files\MouseX\mousex.exe" uninstall`
 - **macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
+- **Linux:** `~/.local/share/mousex/bin/mousex uninstall`
 
 ## Roadmap
 
-- Suporte a Linux
-- Mac como computador principal (servidor)
+- Wayland confirmado em mais ambientes
+- Mac ou Linux como computador principal (servidor)
 - Arrastar e soltar arquivos entre máquinas
 - Melhor suporte a layouts de teclado no Mac
 

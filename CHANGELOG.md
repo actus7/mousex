@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Linux as a client computer: keyboard, mouse, media keys, clipboard (text, images, files and folders), screen lock and automatic updates, installed with the same `install.sh` as macOS. X11 sessions use XTest; Wayland sessions use the desktop's remote control permission (RemoteDesktop portal with libei, GNOME 46 or KDE Plasma 6.1 or newer), which is experimental.
+
 ## [1.1.3] - 2026-10-22
 
 ### Added

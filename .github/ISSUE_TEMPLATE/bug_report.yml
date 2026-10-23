@@ -59,6 +59,8 @@ body:
         - macOS 14
         - macOS 13
         - macOS 12
+        - Linux, X11 session
+        - Linux, Wayland session
         - Other / not applicable
     validations:
       required: true
@@ -92,6 +94,7 @@ body:
         Attach the relevant part of the log file, not the whole file.
         Windows: `C:\ProgramData\MouseX\mousex.log`
         macOS: `~/Library/Application Support/mousex/mousex.log`
+        Linux: `~/.local/share/mousex/mousex.log` (also say which distribution and desktop, e.g. Ubuntu 24.04 GNOME)
         Remove anything private (names, IP addresses, file names) before posting.
       render: text
 
