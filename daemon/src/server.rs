@@ -15,6 +15,7 @@ use mousex_core::{
     pairing::{Allowlist, PeerRecord, pairing_code},
     proto::{Control, MonitorInfo, Motion, read_control, write_control},
     router::{Action, Router, machines_in_order, plausible_delta},
+    screen_numbers,
 };
 use mousex_native::{Event, Hooks, Hotkey, Injector, TrayCommand, TrayStatus};
 use std::{
@@ -88,6 +89,8 @@ enum Msg {
     },
     /// Editor fechado: o layout salvo pode ter mudado.
     LayoutEdited,
+    /// Botão "Identificar telas" do editor.
+    Identify,
     /// Relógio da atividade (manter as outras máquinas acordadas).
     Tick,
     /// Telas deste computador mudaram (resolução, monitor ligado ou desligado).
@@ -384,6 +387,7 @@ impl State {
                 self.rebuild_layout();
                 log("layout reloaded from the editor");
             }
+            Msg::Identify => self.identify_screens(),
             Msg::Clipboard { from, clip } => match &self.remote {
                 None if mousex_native::clipboard_seq() != self.pull_seq => {
                     log("remote clipboard dropped: a newer copy was made on this computer");
@@ -685,9 +689,12 @@ impl State {
                         let tx = tx.clone();
                         std::thread::spawn(move || {
                             for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
-                                if line.trim() == "saved" {
-                                    let _ = tx.send(Msg::LayoutEdited);
-                                }
+                                // Linhas do editor: "saved" recarrega o layout; "identify" pede os números nas telas.
+                                let _ = match line.trim() {
+                                    "saved" => tx.send(Msg::LayoutEdited),
+                                    "identify" => tx.send(Msg::Identify),
+                                    _ => Ok(()),
+                                };
                             }
                         });
                     }
@@ -698,6 +705,24 @@ impl State {
             }
             open.store(false, Ordering::Release);
         });
+    }
+
+    /// "Identificar telas": número em cada monitor das máquinas conectadas, a casa incluída. A numeração segue
+    /// `screen_numbers` sobre as telas conectadas (as ausentes não aparecem no editor, então não ganham número).
+    fn identify_screens(&self) {
+        let view = connected_view(&self.layout, &self.home, &self.connected_monitors());
+        let mut per_machine: HashMap<&str, Vec<(String, u32)>> = HashMap::new();
+        for (monitor, number) in screen_numbers(&view) {
+            per_machine.entry(monitor.machine.as_str()).or_default().push((native_id(&monitor.id).into(), number));
+        }
+        if let Some(local) = per_machine.get(self.home.as_str()) {
+            crate::platform::show_identify(local);
+        }
+        for (machine, client) in &self.clients {
+            if let Some(screens) = per_machine.get(machine.as_str()) {
+                client.send(Control::Identify { screens: screens.clone() });
+            }
+        }
     }
 
     fn connected_monitors(&self) -> Vec<(String, Vec<MonitorInfo>)> {

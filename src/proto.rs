@@ -52,6 +52,11 @@ pub enum Control {
     Activity,
     /// Servidor → cliente: Win+L no servidor; bloquear a tela agora.
     Lock,
+    /// Servidor → cliente: mostrar o número de cada monitor (id nativo → número) por alguns segundos.
+    /// Cliente antigo não conhece a variante e `read_known` a pula, sem desconectar.
+    Identify {
+        screens: Vec<(String, u32)>,
+    },
 }
 
 fn invalid(message: &str) -> io::Error {
@@ -150,6 +155,7 @@ mod tests {
             Control::ClipboardPull,
             Control::Activity,
             Control::Lock,
+            Control::Identify { screens: vec![("m1".into(), 1), ("m2".into(), 2)] },
         ]
     }
 

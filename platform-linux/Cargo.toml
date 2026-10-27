@@ -10,7 +10,7 @@ edition = "2024"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Mesma versão do x11rb que o arboard usa: uma cópia só no binário.
-x11rb = { version = "0.13", features = ["xtest", "randr", "xfixes"] }
+x11rb = { version = "0.13", features = ["xtest", "randr", "xfixes", "shape"] }
 arboard = "3.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # "screencast": o remote_desktop do ashpd 0.13 não compila sem ele.

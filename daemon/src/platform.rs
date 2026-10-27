@@ -1,8 +1,8 @@
 //! Plataforma Windows real: injeção via SendInput, monitores e clipboard Win32.
-use crate::client::Platform;
+use crate::client::{Platform, numbered};
 use crate::clip::Clip;
 use mousex_core::{keymap, proto::MonitorInfo};
-use mousex_native::{Button, Event, Injector};
+use mousex_native::{Button, Event, IdentifyScreen, Injector};
 
 pub fn button_to_u8(button: Button) -> u8 {
     match button {
@@ -129,6 +129,21 @@ impl Platform for WinPlatform {
         if let Err(error) = mousex_native::lock_workstation() {
             crate::log(&format!("failed to lock the screen: {error}"));
         }
+    }
+
+    fn identify(&mut self, screens: &[(String, u32)]) {
+        show_identify(screens);
+    }
+}
+
+/// "Identificar telas": número em cada monitor deste computador (ids nativos da mensagem).
+pub fn show_identify(screens: &[(String, u32)]) {
+    let found: Vec<IdentifyScreen> = numbered(&local_monitors(), screens)
+        .into_iter()
+        .map(|(m, number)| IdentifyScreen { left: m.x, top: m.y, width: m.width, height: m.height, number })
+        .collect();
+    if let Err(error) = mousex_native::show_identify(&found) {
+        crate::log(&format!("failed to identify screens: {error}"));
     }
 }
 

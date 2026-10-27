@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Windows: the last item of the tray menu shows the installed version; clicking it opens **About MouseX** (version, author, license and project page).
+- Screen editor: **Identify screens** shows a large number on every connected screen for 3 seconds, numbered left to right (ties broken top to bottom), on every computer (Windows, macOS and Linux X11; Wayland cannot position windows).
 
 ## [1.1.6] - 2026-10-27
 

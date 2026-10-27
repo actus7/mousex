@@ -77,9 +77,70 @@ pub fn map_to_regions(x: i32, y: i32, screens: &[Rect], regions: &[Rect]) -> Opt
     clamp_to_regions(x, y, regions)
 }
 
+/// Dígitos 5×7 do "Identificar telas": uma linha por byte; o bit 4 é a coluna da esquerda.
+const DIGITS: [[u8; 7]; 10] = [
+    [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
+    [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+    [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+    [0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110],
+    [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+    [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110],
+    [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+    [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+    [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100],
+];
+
+/// Tamanho de célula do número: ocupa metade da altura e da largura do monitor, o que couber.
+pub fn number_cell(screen: Rect, number: u32) -> i32 {
+    let digits = number.to_string().len() as i32;
+    ((screen.height / 2) / 7).min((screen.width / 2) / (6 * digits)).max(1)
+}
+
+/// Número como retângulos a partir do canto superior esquerdo: (largura, altura, pixels).
+/// Uma célula de espaço separa os dígitos.
+pub fn number_pixels(number: u32, cell: i32) -> (i32, i32, Vec<Rect>) {
+    let text = number.to_string();
+    let width = text.len() as i32 * 6 * cell - cell;
+    let mut pixels = Vec::new();
+    for (index, digit) in text.bytes().enumerate() {
+        let left = index as i32 * 6 * cell;
+        for (row, bits) in DIGITS[(digit - b'0') as usize].iter().enumerate() {
+            for col in 0..5 {
+                if (*bits & (0b10000 >> col)) != 0 {
+                    let (x, y) = (left + col * cell, row as i32 * cell);
+                    pixels.push(Rect { x, y, width: cell, height: cell });
+                }
+            }
+        }
+    }
+    (width, 7 * cell, pixels)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numero_um_tem_dez_pixels_no_tamanho_do_glifo() {
+        let (width, height, pixels) = number_pixels(1, 1);
+        assert_eq!((width, height, pixels.len()), (5, 7, 10));
+    }
+
+    #[test]
+    fn dois_digitos_separados_por_uma_celula() {
+        let (width, _, pixels) = number_pixels(12, 2);
+        assert_eq!(width, 22);
+        assert!(pixels.iter().any(|p| p.x == 12), "o segundo dígito começa depois do espaço");
+    }
+
+    #[test]
+    fn celula_cabe_no_monitor_e_nunca_zera() {
+        let small = Rect { x: 0, y: 0, width: 40, height: 40 };
+        assert_eq!(number_cell(small, 12), 1, "dois dígitos num monitor pequeno");
+        let big = Rect { x: 0, y: 0, width: 3840, height: 2160 };
+        assert_eq!(number_cell(big, 1), 154, "metade da altura: 1080 / 7");
+    }
 
     #[test]
     fn botoes_do_protocolo_no_x11_e_no_evdev() {

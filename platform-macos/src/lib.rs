@@ -116,14 +116,31 @@ pub fn scroll_pixels(windows_delta: i32) -> i32 {
     windows_delta / 3
 }
 
+/// Origem Quartz (topo à esquerda, y para baixo) → AppKit (base à esquerda, y para cima), com a altura do
+/// monitor principal como referência. O canto de baixo de uma tela é `top + height` no Quartz.
+pub fn appkit_y(top: f64, height: f64, main_height: f64) -> f64 {
+    main_height - top - height
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
+#[cfg(target_os = "macos")]
+mod overlay;
+#[cfg(target_os = "macos")]
+pub use overlay::{show_identify, IdentifyScreen};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quartz_vira_appkit_a_partir_do_principal() {
+        // Principal 1080 de altura, externo 1440 de altura acima dele (top = -1440): base em 1080 - (-1440) - 1440.
+        assert_eq!(appkit_y(0.0, 1080.0, 1080.0), 0.0);
+        assert_eq!(appkit_y(-1440.0, 1440.0, 1080.0), 1080.0);
+    }
 
     #[test]
     fn flags_de_modificador() {

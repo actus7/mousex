@@ -104,6 +104,19 @@ pub fn save_layout(layout: Layout) -> Result<(), String> {
     Ok(())
 }
 
+/// Pede ao agente o overlay com o número de cada tela (mesmo canal de `save_layout`: a linha vai pela saída padrão).
+#[tauri::command]
+pub fn identify_screens() -> Result<(), String> {
+    if argument("--connected").is_none() {
+        return Err(t("Abra o editor pelo ícone do MouseX na bandeja.", "Open the editor from the MouseX tray icon."));
+    }
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    writeln!(out, "identify")
+        .and_then(|_| out.flush())
+        .map_err(|e| format!("{} {e}", t("Não foi possível identificar as telas:", "Could not identify the screens:")))
+}
+
 #[tauri::command]
 pub fn close_editor(app: tauri::AppHandle) {
     app.exit(0);
