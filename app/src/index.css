@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/manrope';
+
+/* Tokens: o tema segue o sistema (claro por padrão, escuro com prefers-color-scheme). */
+:root {
+  --app: #f3f6f5; --ink: #15201f; --brand: #15201f; --panel: #ffffff;
+  --line: #d3dcdd; --line-hover: #93a4a9; --muted: #5a6c71; --soft: #3f5257;
+  --label: #4b5f65; --dim: #7b8f95; --number: #7b8f95;
+  --accent: #9ee8c3; --accent-ink: #13714e; --accent-hover: #7fdcb0; --on-accent: #0c2a1d;
+  --surface: #ffffff; --surface-hover: #e9efee; --field: #ffffff; --field-line: #bdcacc;
+  --canvas: #eaf0ef; --dot: #c3cfd1;
+  --tile: #ffffff; --tile-line: #8ea0a6; --tile-text: #46595e; --tile-selected: #e2f7ee;
+  --conflict: #fde7e4; --conflict-line: #e07a70; --conflict-ink: #9b2c22;
+  --danger: #b3362b; --danger-line: #e0aaa4; --error: #b3362b;
+  --machine-0: #1a8a5c; --machine-1: #2f6fbf; --machine-2: #b86b12;
+  --machine-3: #9045c0; --machine-4: #c2423b; --machine-5: #6f8c10;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app: #101416; --ink: #e1e8e8; --brand: #eaf7f1; --panel: #171d20;
+    --line: #2a3438; --line-hover: #667a81; --muted: #96a6ad; --soft: #b9c8cd;
+    --label: #aebdc2; --dim: #65777d; --number: #748c93;
+    --accent: #9ee8c3; --accent-ink: #9ee8c3; --accent-hover: #bff4d9; --on-accent: #11291e;
+    --surface: #20292d; --surface-hover: #2b373b; --field: #101719; --field-line: #354247;
+    --canvas: #111719; --dot: #344044;
+    --tile: #222e33; --tile-line: #53656d; --tile-text: #acc1c6; --tile-selected: #213b33;
+    --conflict: #4c2929; --conflict-line: #fa9b92; --conflict-ink: #ffc3bc;
+    --danger: #f4aaa2; --danger-line: #60403e; --error: #ffb4a8;
+    --machine-0: #9ee8c3; --machine-1: #8ec5ff; --machine-2: #ffc98e;
+    --machine-3: #e7a1ff; --machine-4: #ff9e9e; --machine-5: #d8e88e;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: 'DM Sans Variable', system-ui, sans-serif;
+  --font-display: 'Manrope Variable', system-ui, sans-serif;
+  --color-app: var(--app);
+  --color-ink: var(--ink);
+  --color-brand: var(--brand);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-line-hover: var(--line-hover);
+  --color-muted: var(--muted);
+  --color-soft: var(--soft);
+  --color-label: var(--label);
+  --color-dim: var(--dim);
+  --color-number: var(--number);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-field: var(--field);
+  --color-field-line: var(--field-line);
+  --color-canvas: var(--canvas);
+  --color-tile: var(--tile);
+  --color-tile-line: var(--tile-line);
+  --color-tile-text: var(--tile-text);
+  --color-tile-selected: var(--tile-selected);
+  --color-conflict: var(--conflict);
+  --color-conflict-line: var(--conflict-line);
+  --color-conflict-ink: var(--conflict-ink);
+  --color-danger: var(--danger);
+  --color-danger-line: var(--danger-line);
+  --color-error: var(--error);
+}
+
+@layer base {
+  body { margin: 0; background: var(--app); color: var(--ink); font-synthesis: none; }
+  p { margin-block: 1em; color: var(--muted); font-size: 14px; line-height: 1.65; }
+  h2 { margin-block: 0.83em; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+  }
+}
+
+/* Componentes pequenos reaproveitados: botões, campos e rótulos. */
+@utility btn {
+  @apply cursor-pointer rounded-[7px] border border-line bg-surface px-[15px] py-2.5 text-ink transition-colors duration-150 hover:border-line-hover hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45;
+}
+@utility btn-primary {
+  @apply border-accent bg-accent font-bold whitespace-nowrap text-on-accent hover:border-accent-hover hover:bg-accent-hover;
+}
+@utility btn-danger {
+  @apply w-full border-danger-line bg-transparent text-xs text-danger;
+}
+@utility field {
+  @apply w-full min-w-0 rounded-md border border-field-line bg-field p-2.5 text-ink;
+}
+@utility field-label {
+  @apply block text-xs text-label;
+}
+@utility eyebrow {
+  @apply text-[10px] font-bold tracking-[1.8px] text-muted;
+}
+@utility feedback {
+  @apply mt-4 min-h-[38px] text-xs leading-[1.6];
+}

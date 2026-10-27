@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Windows: the last item of the tray menu shows the installed version; clicking it opens **About MouseX** (version, author, license and project page).
+- Arrange screens: the edges where two screens touch are highlighted on the canvas, which shows where the cursor crosses between them.
+- Arrange screens: **Undo** and **Redo** with Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y. A whole drag, a slider movement or a held arrow key counts as one step.
+- Arrange screens: **Identify screens** numbers this computer's screens from left to right, and shows the same numbers on the physical monitors.
+- Arrange screens: light and dark themes follow the system setting, and the fonts are bundled with the app (no requests to Google Fonts).
 
 ### Fixed
 
