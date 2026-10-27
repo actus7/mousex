@@ -82,6 +82,10 @@ fn serve(listener: TcpListener) {
         let Ok(mut stream) = conn else { continue };
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
         let Some((req, _body)) = read_request(&mut stream) else { continue };
+        if !local_host(&req) {
+            respond(&mut stream, "application/json; charset=utf-8", br#"{"ok":false,"message":"forbidden"}"#);
+            continue;
+        }
         let path = req.split_whitespace().nth(1).unwrap_or("/");
         if path.starts_with("/favicon") || path == "/icon.png" {
             respond(&mut stream, "image/png", ICON);
@@ -136,7 +140,6 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 }
 
 /// Asked as 127.0.0.1 or localhost: another name pointing here (DNS rebinding) gets nothing.
-#[cfg(target_os = "linux")]
 fn local_host(head: &str) -> bool {
     header(head, "host").is_some_and(|host| host == format!("127.0.0.1:{PORT}") || host == format!("localhost:{PORT}"))
 }
@@ -848,6 +851,33 @@ mod tests {
         assert_eq!(percent_decode("MacBook%20da%20J%C3%BAlia"), "MacBook da Júlia");
         assert_eq!(percent_decode("100%"), "100%");
         assert_eq!(percent_decode("%+1"), "%+1");
+    }
+
+    #[test]
+    fn status_so_responde_a_127_ou_localhost() {
+        assert!(local_host(
+            "GET /api/status HTTP/1.1
+Host: 127.0.0.1:41416
+
+"
+        ));
+        assert!(local_host(
+            "GET / HTTP/1.1
+host: localhost:41416
+
+"
+        ));
+        assert!(!local_host(
+            "GET /api/status HTTP/1.1
+Host: evil.example:41416
+
+"
+        ));
+        assert!(!local_host(
+            "GET /api/status HTTP/1.1
+
+"
+        ));
     }
 
     #[cfg(target_os = "linux")]
