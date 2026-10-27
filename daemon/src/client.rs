@@ -2,11 +2,13 @@
 use crate::clip;
 use crate::clip::Clip;
 use crate::link_status;
+use crate::transfer_progress::Progress;
+use crate::transfer_ui;
 use mousex_core::{
     net::{self, Link},
     proto::{Control, MonitorInfo, Motion, is_newer, read_known, write_control},
 };
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 const BACKOFF_START: Duration = Duration::from_millis(250);
@@ -127,7 +129,11 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
         while let Ok(stream) = incoming.accept_uni().await {
             let clips_tx = clips_tx.clone();
             tokio::spawn(async move {
-                if let Some(clip) = clip::receive(stream, &clip::inbox()).await {
+                let progress = Arc::new(Progress::default());
+                transfer_ui::watch(progress.clone());
+                let clip = clip::receive(stream, &clip::inbox(), &progress).await;
+                progress.finish();
+                if let Some(clip) = clip {
                     let _ = clips_tx.send(clip).await;
                 }
             });
@@ -192,8 +198,15 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
             }
             Some(clip) = clips.recv() => {
                 // ponytail: gravação síncrona no loop; mover para spawn_blocking se imagens grandes engasgarem o cursor.
+                let files = match &clip {
+                    Clip::Files(paths) => Some(paths.len()),
+                    _ => None,
+                };
                 platform.clipboard_write(clip);
                 synced = platform.clipboard_seq();
+                if let Some(count) = files {
+                    transfer_ui::files_ready(count);
+                }
             }
         }
     }

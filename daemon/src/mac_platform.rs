@@ -131,8 +131,20 @@ impl Platform for MacPlatform {
             Clip::Png(png) => mac::Clip::Png(png),
             Clip::Files(paths) => mac::Clip::Files(paths),
         };
-        let _ = mac::clipboard_write(&native);
+        if let Err(error) = mac::clipboard_write(&native) {
+            crate::log(&format!("failed to write the clipboard: {error}"));
+        }
     }
+}
+
+/// Painel de transferência no Mac. ponytail: sem botão Cancelar (exige classe ObjC com ação); a ação é descartada.
+pub fn show_panel(
+    title: &str,
+    poll: Box<dyn Fn() -> Option<(String, Option<u8>)> + Send>,
+    cancel: Option<(String, Box<dyn Fn() + Send>)>,
+) {
+    drop(cancel);
+    mac::show_panel(title, poll);
 }
 
 /// No Mac o agente já roda como o usuário.

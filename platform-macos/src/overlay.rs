@@ -5,7 +5,9 @@
 use crate::appkit_y;
 use core_graphics::display::CGDisplay;
 use objc2::{rc::Retained, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSBackingStoreType, NSColor, NSFont, NSTextAlignment, NSTextField, NSWindow, NSWindowStyleMask};
+use objc2_app_kit::{
+    NSBackingStoreType, NSColor, NSFont, NSProgressIndicator, NSTextAlignment, NSTextField, NSWindow, NSWindowStyleMask,
+};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use std::ffi::c_void;
 
@@ -103,4 +105,101 @@ fn window(mtm: MainThreadMarker, screen: &IdentifyScreen, main_height: f64) -> R
     window.setContentView(Some(&label));
     window.orderFrontRegardless();
     window
+}
+
+/// Atualização do painel: texto e percentual (None: sem barra). Devolver None fecha a janela.
+pub type PanelPoll = Box<dyn Fn() -> Option<(String, Option<u8>)> + Send>;
+
+/// Janela do painel e os controles que mudam, guardados entre um tick e o seguinte.
+struct Panel {
+    window: Retained<NSWindow>,
+    text: Retained<NSTextField>,
+    bar: Retained<NSProgressIndicator>,
+    poll: PanelPoll,
+}
+
+const PANEL_TICK_NANOS: i64 = 150_000_000;
+const PANEL_WIDTH: f64 = 440.0;
+const PANEL_HEIGHT: f64 = 150.0;
+/// NSFloatingWindowLevel: acima das janelas comuns, sem ir para cima do protetor de tela.
+const FLOATING_LEVEL: isize = 3;
+
+/// Abre o painel de transferência na fila principal e volta na hora. `poll` roda ali a cada 150 ms.
+// ponytail: sem botão Cancelar (precisa de classe ObjC com ação); o painel só mostra progresso e aviso.
+pub fn show_panel(title: &str, poll: PanelPoll) {
+    let job = Box::new((title.to_string(), poll));
+    // SAFETY: a fila principal é um símbolo fixo do libdispatch; `open_panel` libera o contexto uma única vez.
+    unsafe {
+        let queue = std::ptr::addr_of!(_dispatch_main_q);
+        dispatch_async_f(queue.cast(), Box::into_raw(job).cast(), open_panel);
+    }
+}
+
+extern "C" fn open_panel(context: *mut c_void) {
+    // SAFETY: `context` veio de `Box::into_raw` em `show_panel` e é consumido aqui, uma única vez.
+    let (title, poll) = *unsafe { Box::from_raw(context.cast::<(String, PanelPoll)>()) };
+    // Fora da thread principal o AppKit não cria janelas: a tarefa é descartada.
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    schedule_tick(Box::new(Panel::open(mtm, &title, poll)));
+}
+
+fn schedule_tick(panel: Box<Panel>) {
+    // SAFETY: relógio padrão do libdispatch; `tick` consome o contexto (e o devolve se o painel continuar).
+    unsafe {
+        let when = dispatch_time(DISPATCH_TIME_NOW, PANEL_TICK_NANOS);
+        let queue = std::ptr::addr_of!(_dispatch_main_q);
+        dispatch_after_f(when, queue.cast(), Box::into_raw(panel).cast(), tick);
+    }
+}
+
+extern "C" fn tick(context: *mut c_void) {
+    // SAFETY: veio de `Box::into_raw` em `schedule_tick`; consumido aqui e devolvido só se o painel continuar.
+    let panel = unsafe { Box::from_raw(context.cast::<Panel>()) };
+    match (panel.poll)() {
+        None => panel.window.close(),
+        Some((text, percent)) => {
+            panel.text.setStringValue(&NSString::from_str(&text));
+            panel.bar.setHidden(percent.is_none());
+            if let Some(percent) = percent {
+                panel.bar.setDoubleValue(f64::from(percent));
+            }
+            schedule_tick(panel);
+        }
+    }
+}
+
+impl Panel {
+    /// Janela com título ao centro, com texto e barra; sem ativar o app (não rouba o foco).
+    fn open(mtm: MainThreadMarker, title: &str, poll: PanelPoll) -> Panel {
+        // SAFETY: estamos na thread principal (o MainThreadMarker garante) e a alocação acabou de ser feita aqui.
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(PANEL_WIDTH, PANEL_HEIGHT)),
+                NSWindowStyleMask::Titled,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        // SAFETY: a janela é guardada entre os ticks; sem isto, `close` a liberaria antes do `Retained` soltar.
+        unsafe { window.setReleasedWhenClosed(false) };
+        window.setTitle(&NSString::from_str(title));
+        window.setLevel(FLOATING_LEVEL);
+        window.center();
+        let text = NSTextField::labelWithString(&NSString::from_str(""), mtm);
+        text.setFrame(NSRect::new(NSPoint::new(16.0, 96.0), NSSize::new(408.0, 40.0)));
+        let bar = NSProgressIndicator::new(mtm);
+        bar.setIndeterminate(false);
+        bar.setMinValue(0.0);
+        bar.setMaxValue(100.0);
+        bar.setFrame(NSRect::new(NSPoint::new(16.0, 60.0), NSSize::new(408.0, 20.0)));
+        if let Some(content) = window.contentView() {
+            content.addSubview(&text);
+            content.addSubview(&bar);
+        }
+        window.orderFrontRegardless();
+        Panel { window, text, bar, poll }
+    }
 }

@@ -5,6 +5,8 @@ use crate::{
     clip,
     layout::{connected_view, home_arrangement, native_id, rebuild},
     log, os, platform,
+    transfer_progress::Progress,
+    transfer_ui,
 };
 use mousex_core::{
     ScreenLayout,
@@ -263,7 +265,11 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
         while let Ok(stream) = clip_conn.accept_uni().await {
             let (tx, from) = (clip_tx.clone(), clip_machine.clone());
             tokio::spawn(async move {
-                if let Some(clip) = clip::receive(stream, &clip::inbox()).await {
+                let progress = std::sync::Arc::new(Progress::default());
+                transfer_ui::watch(progress.clone());
+                let clip = clip::receive(stream, &clip::inbox(), &progress).await;
+                progress.finish();
+                if let Some(clip) = clip {
                     let _ = tx.send(Msg::Clipboard { from, clip });
                 }
             });
@@ -429,9 +435,16 @@ impl State {
                 None => {
                     // Gravação bloqueante fora do loop de roteamento.
                     let seq = self.home_clip_seq.clone();
+                    let files = match &clip {
+                        clip::Clip::Files(paths) => Some(paths.len()),
+                        _ => None,
+                    };
                     tokio::task::spawn_blocking(move || {
                         clipboard_write(&clip);
                         seq.store(platform::clipboard_seq(), Ordering::Relaxed);
+                        if let Some(count) = files {
+                            transfer_ui::files_ready(count);
+                        }
                     });
                 }
                 Some(target) if *target != from => {
