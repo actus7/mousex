@@ -210,6 +210,23 @@ pub(crate) fn refresh_update_task() {
     }
 }
 
+/// Print Screen abre a captura de tela do Windows, como o Print abre o recorte no Mac. Só quando o usuário
+/// nunca escolheu: um 0 gravado por ele fica como está.
+pub(crate) fn enable_print_screen_capture() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const KEY: &str = r"HKCU\Control Panel\Keyboard";
+    const VALUE: &str = "PrintScreenKeyForSnippingEnabled";
+    let reg = |args: &[&str]| Command::new("reg").args(args).creation_flags(CREATE_NO_WINDOW).output();
+    if reg(&["query", KEY, "/v", VALUE]).is_ok_and(|output| output.status.success()) {
+        return;
+    }
+    match reg(&["add", KEY, "/v", VALUE, "/t", "REG_DWORD", "/d", "1", "/f"]) {
+        Ok(output) if output.status.success() => crate::log("Print Screen now opens the Windows screen capture"),
+        _ => crate::log("could not turn on Print Screen for the screen capture"),
+    }
+}
+
 /// schtasks lê XML em UTF-16 LE com BOM.
 /// O XML fica na pasta de instalação (só administradores escrevem), nunca no %TEMP% do usuário: lá um
 /// processo sem privilégio trocaria o arquivo antes do schtasks elevado ler e ganharia uma tarefa SYSTEM.

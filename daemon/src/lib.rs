@@ -122,6 +122,7 @@ pub fn agent_main() {
     #[cfg(windows)]
     if std::env::args().nth(1).as_deref() != Some(supervisor::WORKER) {
         install::refresh_update_task();
+        install::enable_print_screen_capture();
         return supervisor::supervise();
     }
     if !platform::prepare() {
