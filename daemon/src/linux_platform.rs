@@ -1,6 +1,10 @@
 //! Plataforma Linux (só cliente): injeção por XTest (X11) ou pelo portal RemoteDesktop (Wayland),
 //! telas pelo RandR e clipboard pelo X11.
-use crate::{client::Platform, clip::Clip, config::data_dir};
+use crate::{
+    client::{Platform, numbered},
+    clip::Clip,
+    config::data_dir,
+};
 use mousex_core::{MAX_CLIPBOARD_TEXT_BYTES, keymap, proto::MonitorInfo};
 use mousex_platform_linux as linux;
 
@@ -146,6 +150,16 @@ impl Platform for LinuxPlatform {
     fn lock_screen(&mut self) {
         if let Err(error) = linux::lock_screen() {
             crate::log(&format!("could not lock the screen: {error}"));
+        }
+    }
+
+    fn identify(&mut self, screens: &[(String, u32)]) {
+        let found: Vec<(linux::Rect, u32)> = numbered(&local_monitors(), screens)
+            .into_iter()
+            .map(|(m, number)| (linux::Rect { x: m.x, y: m.y, width: m.width, height: m.height }, number))
+            .collect();
+        if let Err(error) = linux::show_identify(&found) {
+            crate::log(&format!("screen identification unavailable: {error}"));
         }
     }
 }

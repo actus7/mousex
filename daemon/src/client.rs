@@ -38,6 +38,16 @@ pub trait Platform: Send {
     fn monitors(&self) -> Vec<MonitorInfo>;
     /// Origens usadas por `move_to`, na ordem do último Hello enviado.
     fn set_monitors(&mut self, monitors: &[MonitorInfo]);
+    /// "Identificar telas": número em cada monitor (id nativo → número) por alguns segundos.
+    fn identify(&mut self, screens: &[(String, u32)]);
+}
+
+/// Monitores locais que recebem número: cruza os ids nativos da mensagem com os monitores atuais.
+pub fn numbered(monitors: &[MonitorInfo], screens: &[(String, u32)]) -> Vec<(MonitorInfo, u32)> {
+    monitors
+        .iter()
+        .filter_map(|m| screens.iter().find(|(id, _)| *id == m.id).map(|(_, number)| (m.clone(), *number)))
+        .collect()
 }
 
 /// Nunca retorna: procura o servidor, conecta e, a cada queda, solta tudo e tenta de novo.
@@ -148,6 +158,7 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
                     platform.release_all();
                     platform.lock_screen();
                 }
+                Some(Control::Identify { screens }) => platform.identify(&screens),
                 Some(Control::Hello { .. }) => {}
             },
             datagram = conn.read_datagram() => match datagram {
@@ -252,6 +263,9 @@ mod tests {
         fn set_monitors(&mut self, monitors: &[MonitorInfo]) {
             self.push(format!("monitores {}", monitors[0].y));
         }
+        fn identify(&mut self, screens: &[(String, u32)]) {
+            self.push(format!("identify {}", screens.len()));
+        }
     }
 
     fn hello() -> Control {
@@ -337,6 +351,25 @@ mod tests {
             .expect("leitura");
         assert_eq!(message, Control::Hello { machine: "win2".into(), monitors: moved });
         wait_for(&fake, "monitores -1080").await;
+    }
+
+    #[tokio::test]
+    async fn identificar_chega_ao_cliente() {
+        let (server, fake) = setup().await;
+        let mut link = accept_hello(&server).await;
+        let screens = vec![("d1".to_string(), 1), ("d2".to_string(), 2)];
+        write_control(&mut link.control_tx, &Control::Identify { screens }).await.expect("identify");
+        wait_for(&fake, "identify 2").await;
+    }
+
+    #[test]
+    fn numero_so_vai_para_monitor_presente() {
+        let at = |id: &str, x: i32| MonitorInfo { id: id.into(), x, y: 0, width: 1920, height: 1080, scale: 1.0 };
+        let monitors = [at("d1", 0), at("d3", 1920)];
+        let screens = [("d1".to_string(), 1), ("d2".to_string(), 2)];
+        let found = numbered(&monitors, &screens);
+        assert_eq!(found.len(), 1, "d2 não está conectada aqui");
+        assert_eq!((found[0].0.id.as_str(), found[0].1), ("d1", 1));
     }
 
     #[tokio::test]

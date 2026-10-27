@@ -148,11 +148,13 @@ pub enum TrayCommand {
     Jump(u8),
 }
 
+mod identify;
 mod power;
 mod shell;
 mod tray;
 pub use access::{as_standard_user, create_private_dir, free_space};
 pub use display::set_monitor_positions;
+pub use identify::{show_identify, IdentifyScreen};
 pub use power::{keep_awake, lock_workstation};
 pub use resilience::KillOnCloseJob;
 pub use shell::{hide_console, run_elevated, show_message};

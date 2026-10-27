@@ -1,6 +1,6 @@
 //! Plataforma macOS (só cliente): injeção via CGEvent, monitores em pontos e clipboard NSPasteboard.
 use crate::{
-    client::Platform,
+    client::{Platform, numbered},
     clip::Clip,
     config::{Config, data_dir},
 };
@@ -106,6 +106,14 @@ impl Platform for MacPlatform {
     }
 
     /// Ctrl+Cmd+Q: o atalho de bloqueio do próprio macOS.
+    fn identify(&mut self, screens: &[(String, u32)]) {
+        let found: Vec<mac::IdentifyScreen> = numbered(&local_monitors(), screens)
+            .into_iter()
+            .map(|(m, number)| mac::IdentifyScreen { x: m.x, y: m.y, width: m.width, height: m.height, number })
+            .collect();
+        mac::show_identify(&found);
+    }
+
     fn lock_screen(&mut self) {
         const CONTROL: u16 = 0x3B;
         const COMMAND: u16 = 0x37;

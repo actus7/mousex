@@ -6,6 +6,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             bridge::load_layout,
             bridge::save_layout,
+            bridge::identify_screens,
             bridge::close_editor,
             bridge::home_machine,
             bridge::connected_screens,
