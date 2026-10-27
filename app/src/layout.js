@@ -1,8 +1,34 @@
 import { t } from './i18n.js';
 // Encostam quando dividem um trecho de borda (só o canto não basta): é por ali que o cursor passa.
-const touching = (a, b) =>
-  ((a.x + a.width === b.x || b.x + b.width === a.x) && a.y < b.y + b.height && b.y < a.y + a.height) ||
-  ((a.y + a.height === b.y || b.y + b.height === a.y) && a.x < b.x + b.width && b.x < a.x + a.width);
+// Devolve o trecho compartilhado em coordenadas do layout, ou null. Mesma regra do `touching` do Rust.
+const sharedEdge = (a, b) => {
+  const top = Math.max(a.y, b.y), bottom = Math.min(a.y + a.height, b.y + b.height);
+  const left = Math.max(a.x, b.x), right = Math.min(a.x + a.width, b.x + b.width);
+  if (top < bottom && (a.x + a.width === b.x || b.x + b.width === a.x)) {
+    const x = a.x + a.width === b.x ? b.x : a.x;
+    return { x1: x, y1: top, x2: x, y2: bottom };
+  }
+  if (left < right && (a.y + a.height === b.y || b.y + b.height === a.y)) {
+    const y = a.y + a.height === b.y ? b.y : a.y;
+    return { x1: left, y1: y, x2: right, y2: y };
+  }
+  return null;
+};
+const touching = (a, b) => sharedEdge(a, b) !== null;
+// Trechos de borda entre pares de telas, para destacar no canvas.
+export function sharedEdges(monitores) {
+  const out = [];
+  for (let i = 0; i < monitores.length; i++) for (let j = i + 1; j < monitores.length; j++) {
+    const edge = sharedEdge(monitores[i], monitores[j]);
+    if (edge) out.push({ a: monitores[i].id, b: monitores[j].id, ...edge });
+  }
+  return out;
+}
+// Número de cada tela da esquerda para a direita (desempate por y). O Identificar telas usa a mesma regra.
+export function screenNumbers(monitores) {
+  const ordered = [...monitores].sort((a, b) => a.x - b.x || a.y - b.y);
+  return new Map(ordered.map((m, i) => [m.id, i + 1]));
+}
 // Telas de uma máquina formam um bloco só? O Windows não aceita telas soltas na área de trabalho.
 export function connected(monitores) {
   const reached = new Set(monitores.slice(0, 1));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLayout, overlapping, snap, resize, fitZoom, onlyConnected } from './layout.js';
+import { validateLayout, overlapping, snap, resize, fitZoom, onlyConnected, sharedEdges, screenNumbers } from './layout.js';
 const a = { id: 'a', machine: 'desktop', x: -100, y: -50, width: 100, height: 100, scale_fator: 1 };
 const b = { ...a, id: 'b', x: 0, scale_fator: 2 };
 test('README layout accepts adjacent screens and negative coordinates', () => assert.equal(validateLayout({ monitores: [a, b] }), ''));
@@ -43,4 +43,22 @@ test('telas deste computador precisam se encostar: o Windows não aceita telas s
 test('onlyConnected drops ghost screens and keeps home and connected ones', () => {
   const home = { ...a, id: 'pc:1', machine: 'pc' }, mac = { ...b, id: 'mac:1', machine: 'mac' }, ghost = { ...b, id: 'mac:old', machine: 'mac', x: 500 };
   assert.deepEqual(onlyConnected([home, mac, ghost], ['mac:1'], 'pc').map(m => m.id), ['pc:1', 'mac:1']);
+});
+test('sharedEdges devolve o trecho de borda que duas telas dividem', () => {
+  const left = { id: 'l', machine: 'pc', x: 0, y: 0, width: 100, height: 100, scale_fator: 1 };
+  const right = { ...left, id: 'r', x: 100, y: 50, height: 100 };
+  const below = { ...left, id: 'd', y: 100, x: 40, width: 100 };
+  assert.deepEqual(sharedEdges([left, right]), [{ a: 'l', b: 'r', x1: 100, y1: 50, x2: 100, y2: 100 }]);
+  assert.deepEqual(sharedEdges([left, below]), [{ a: 'l', b: 'd', x1: 40, y1: 100, x2: 100, y2: 100 }]);
+});
+test('sharedEdges ignora canto, vão e sobreposição de borda sem trecho', () => {
+  const a1 = { id: 'a', machine: 'pc', x: 0, y: 0, width: 100, height: 100, scale_fator: 1 };
+  assert.deepEqual(sharedEdges([a1, { ...a1, id: 'corner', x: 100, y: 100 }]), [], 'só canto');
+  assert.deepEqual(sharedEdges([a1, { ...a1, id: 'gap', x: 101 }]), [], 'vão de 1 px');
+  assert.deepEqual(sharedEdges([a1, { ...a1, id: 'over', x: 50 }]), [], 'sobreposta não encosta');
+});
+test('screenNumbers numera da esquerda para a direita e desempata por y', () => {
+  const tela = (id, x, y) => ({ id, machine: 'pc', x, y, width: 100, height: 100, scale_fator: 1 });
+  const numbers = screenNumbers([tela('c', 500, 0), tela('b', 0, 300), tela('a', 0, 0)]);
+  assert.deepEqual([...numbers], [['a', 1], ['b', 2], ['c', 3]]);
 });
