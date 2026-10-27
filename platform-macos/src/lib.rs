@@ -142,12 +142,79 @@ pub fn appkit_y(top: f64, height: f64, main_height: f64) -> f64 {
     main_height - top - height
 }
 
+/// Entrada capturada pelo event tap, já com o significado do Mac. Botões na numeração do MouseX
+/// (0 esquerdo, 1 direito, 2 meio, 3 e 4 laterais). `Pointer` traz a posição e os deltas crus.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Input {
+    Key {
+        keycode: u16,
+        down: bool,
+    },
+    Button {
+        button: u8,
+        down: bool,
+    },
+    Pointer {
+        x: f64,
+        y: f64,
+        dx: i64,
+        dy: i64,
+    },
+    /// Roda em pixels do Mac (eixo vertical e horizontal, como o CoreGraphics entrega).
+    Scroll {
+        vertical: i64,
+        horizontal: i64,
+    },
+    /// O macOS desligou o tap (tempo ou entrada do usuário) e ele foi religado.
+    TapRestarted,
+}
+
+const DEVICE_LCTRL: u64 = 0x01;
+const DEVICE_LSHIFT: u64 = 0x02;
+const DEVICE_RSHIFT: u64 = 0x04;
+const DEVICE_LCMD: u64 = 0x08;
+const DEVICE_RCMD: u64 = 0x10;
+const DEVICE_LOPTION: u64 = 0x20;
+const DEVICE_ROPTION: u64 = 0x40;
+const DEVICE_RCTRL: u64 = 0x2000;
+
+/// Se o modificador do keycode está apertado nas flags. `FlagsChanged` não diz se foi aperto ou soltura,
+/// então vale o bit específico do lado (esquerdo/direito) que o macOS põe junto das flags.
+pub fn modifier_down(keycode: u16, flags: u64) -> bool {
+    let bit = match keycode {
+        0x3B => DEVICE_LCTRL,
+        0x3E => DEVICE_RCTRL,
+        0x38 => DEVICE_LSHIFT,
+        0x3C => DEVICE_RSHIFT,
+        0x37 => DEVICE_LCMD,
+        0x36 => DEVICE_RCMD,
+        0x3A => DEVICE_LOPTION,
+        0x3D => DEVICE_ROPTION,
+        0x39 => return flags & FLAG_CAPS != 0,
+        _ => return false,
+    };
+    flags & bit != 0
+}
+
+/// Roda do Mac (pixels) → (dx, dy) do Windows (120 por dente), inverso de `Injector::scroll`: ali o eixo 2 vai
+/// invertido, então aqui o horizontal também. Vertical positivo = para cima; horizontal positivo = direita.
+pub fn windows_wheel(vertical: i64, horizontal: i64) -> (i16, i16) {
+    (to_wheel(-horizontal), to_wheel(vertical))
+}
+
+fn to_wheel(pixels: i64) -> i16 {
+    // ponytail: mesmo fator de `scroll_pixels` ao contrário; roda do trackpad já chega pequena e amplificada.
+    (pixels * 3).clamp(i16::MIN as i64, i16::MAX as i64) as i16
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 #[cfg(target_os = "macos")]
 mod overlay;
+#[cfg(target_os = "macos")]
+pub mod tap;
 #[cfg(target_os = "macos")]
 pub use overlay::{show_identify, IdentifyScreen};
 #[cfg(target_os = "macos")]
@@ -235,6 +302,23 @@ mod tests {
     fn print_screen_nao_solta_shift_do_usuario() {
         let seq = print_screen_sequence(true);
         assert!(seq.iter().all(|&(k, _)| k != 0x38), "Shift segurado pelo usuário não é tocado");
+    }
+
+    #[test]
+    fn modificador_pelo_lado_certo() {
+        assert!(modifier_down(0x37, DEVICE_LCMD), "Cmd esquerdo apertado");
+        assert!(!modifier_down(0x37, DEVICE_RCMD), "Cmd direito solto não conta para o esquerdo");
+        assert!(modifier_down(0x36, DEVICE_RCMD));
+        assert!(modifier_down(0x39, FLAG_CAPS), "Caps Lock ligado");
+        assert!(!modifier_down(0x00, u64::MAX), "tecla comum nunca é modificador");
+    }
+
+    #[test]
+    fn roda_do_mac_vira_roda_do_windows() {
+        assert_eq!(windows_wheel(40, 0), (0, 120), "um dente para cima");
+        assert_eq!(windows_wheel(-40, 0), (0, -120), "um dente para baixo");
+        assert_eq!(windows_wheel(0, -40), (120, 0), "eixo horizontal invertido, como no Injector");
+        assert_eq!(windows_wheel(scroll_pixels(-120) as i64, 0), (0, -120), "ida e volta pelo Injector");
     }
 
     #[test]

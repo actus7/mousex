@@ -285,6 +285,22 @@ pub fn hid_to_mac(hid: u16) -> Option<u16> {
     MAC_TABLE.iter().find(|&&(h, _)| h == hid).map(|&(_, mac)| mac)
 }
 
+/// kVK_* do Mac → HID, inverso de `hid_to_mac`. Keycode dividido por mais de uma tecla (F20–F24) volta à primeira.
+pub fn mac_to_hid(keycode: u16) -> Option<u16> {
+    MAC_TABLE.iter().find(|&&(_, mac)| mac == keycode).map(|&(hid, _)| hid)
+}
+
+/// Tecla física do Mac → scancode do Windows, como o servidor a envia. Com `remap`, Cmd e Ctrl trocam de lugar
+/// (a mesma troca que o cliente Mac faz ao receber).
+pub fn mac_key_to_win(keycode: u16, remap: bool) -> Option<(u16, bool)> {
+    hid_to_win_scancode(remap_for_mac(mac_to_hid(keycode)?, remap))
+}
+
+/// Inverso de `mac_key_to_win`: scancode do Windows → kVK_* do Mac, para soltar no Mac a tecla apertada aqui.
+pub fn win_to_mac_key(scancode: u16, extended: bool, remap: bool) -> Option<u16> {
+    hid_to_mac(remap_for_mac(win_scancode_to_hid(scancode, extended)?, remap))
+}
+
 /// Mídia e volume no Mac: NX_KEYTYPE_* (evento de sistema; o keycode de volume não muda o volume).
 pub fn hid_to_mac_media(hid: u16) -> Option<u32> {
     Some(match hid {
@@ -355,6 +371,29 @@ pub fn evdev_to_hid(code: u16) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cmd_do_mac_vira_ctrl_e_option_vira_alt() {
+        assert_eq!(mac_key_to_win(0x37, true), Some((0x1D, false)), "Cmd físico é Ctrl do Windows");
+        assert_eq!(mac_key_to_win(0x37, false), Some((0x5B, true)), "sem troca, Cmd é a tecla Windows");
+        assert_eq!(mac_key_to_win(0x3B, true), Some((0x5B, true)), "Ctrl físico é a tecla Windows");
+        assert_eq!(mac_key_to_win(0x3A, true), Some((0x38, false)), "Option é Alt");
+    }
+
+    #[test]
+    fn f14_do_mac_e_scroll_lock_e_home_e_numero_viram_atalhos() {
+        assert_eq!(mac_key_to_win(0x6B, false), Some((0x46, false)), "F14 = Scroll Lock (prende o cursor)");
+        assert_eq!(mac_key_to_win(0x73, false), Some((0x47, true)), "Home (emergência)");
+        assert_eq!(mac_key_to_win(0x12, false), Some((0x02, false)), "1 (salto)");
+    }
+
+    #[test]
+    fn tecla_do_mac_volta_ao_mesmo_keycode() {
+        for keycode in [0x37, 0x36, 0x3B, 0x3A, 0x6B, 0x73, 0x12, 0x00] {
+            let (scancode, extended) = mac_key_to_win(keycode, true).unwrap();
+            assert_eq!(win_to_mac_key(scancode, extended, true), Some(keycode), "keycode {keycode:#04x}");
+        }
+    }
 
     #[test]
     fn abnt2_teclas_exclusivas() {
