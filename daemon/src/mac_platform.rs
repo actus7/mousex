@@ -45,6 +45,13 @@ pub type Native = MacPlatform;
 // Falhas de injeção (permissão de Acessibilidade ausente) são ignoradas: nada a fazer além de não travar.
 impl Platform for MacPlatform {
     fn key(&mut self, hid: u16, down: bool) {
+        // Print Screen dispara a captura no keydown; o keyup não tem o que fazer.
+        if hid == keymap::PRINT_SCREEN {
+            if down {
+                let _ = self.injector.print_screen();
+            }
+            return;
+        }
         if let Some(media) = keymap::hid_to_mac_media(hid) {
             let _ = mac::media_key(media, down);
             return;

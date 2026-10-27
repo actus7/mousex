@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Windows: the last item of the tray menu shows the installed version; clicking it opens **About MouseX** (version, author, license and project page).
 
+### Fixed
+
+- Print Screen on the main computer works on a Mac receiving the cursor: it opens the area capture (Cmd+Shift+4), and Shift+Print Screen opens the full-screen capture (Cmd+Shift+3). On Windows and Linux it is passed through as the normal Print Screen key.
+
 ## [1.1.6] - 2026-10-27
 
 ### Changed

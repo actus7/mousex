@@ -150,6 +150,15 @@ impl Injector {
         Ok(())
     }
 
+    /// Print Screen: dispara o atalho de captura do macOS. O Shift do usuário, se houver, já está em `modifiers`.
+    pub fn print_screen(&mut self) -> io::Result<()> {
+        let shift_held = self.modifiers.held().iter().any(|&k| modifier_flag(k) == Some(FLAG_SHIFT));
+        for (keycode, down) in print_screen_sequence(shift_held) {
+            self.key(keycode, down)?;
+        }
+        Ok(())
+    }
+
     /// Solta tudo que foi injetado e zera os modificadores (nenhuma tecla presa após queda).
     pub fn release_all(&mut self) {
         for button in self.buttons.clone() {

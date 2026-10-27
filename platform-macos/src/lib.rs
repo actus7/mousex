@@ -39,6 +39,26 @@ pub fn key_flags(keycode: u16) -> u64 {
     }
 }
 
+/// Print Screen do Windows no Mac: Cmd+Shift+4 (área) ou, com Shift, Cmd+Shift+3 (tela). Shift só é
+/// sintetizado se o usuário não o segura, e nada que foi sintetizado fica preso depois.
+pub fn print_screen_sequence(shift_held: bool) -> Vec<(u16, bool)> {
+    const COMMAND: u16 = 0x37;
+    const SHIFT: u16 = 0x38;
+    const THREE: u16 = 0x14;
+    const FOUR: u16 = 0x15;
+    let (key, synth_shift) = if shift_held { (THREE, false) } else { (FOUR, true) };
+    let mut seq = vec![(COMMAND, true)];
+    if synth_shift {
+        seq.push((SHIFT, true));
+    }
+    seq.extend([(key, true), (key, false)]);
+    if synth_shift {
+        seq.push((SHIFT, false));
+    }
+    seq.push((COMMAND, false));
+    seq
+}
+
 /// Eventos sintéticos não herdam o estado dos modificadores: cada evento leva as flags explicitamente.
 #[derive(Debug, Default, Clone)]
 pub struct Modifiers {
@@ -177,6 +197,25 @@ mod tests {
         assert_eq!(key_flags(0x73), FLAG_FN, "Home");
         assert_eq!(key_flags(0x7A), FLAG_FN, "F1");
         assert_eq!(key_flags(0x00), 0, "A");
+    }
+
+    #[test]
+    fn print_screen_no_mac_vira_recorte() {
+        assert_eq!(
+            print_screen_sequence(false),
+            [(0x37, true), (0x38, true), (0x15, true), (0x15, false), (0x38, false), (0x37, false)]
+        );
+    }
+
+    #[test]
+    fn print_screen_com_shift_vira_tela_inteira() {
+        assert_eq!(print_screen_sequence(true), [(0x37, true), (0x14, true), (0x14, false), (0x37, false)]);
+    }
+
+    #[test]
+    fn print_screen_nao_solta_shift_do_usuario() {
+        let seq = print_screen_sequence(true);
+        assert!(seq.iter().all(|&(k, _)| k != 0x38), "Shift segurado pelo usuário não é tocado");
     }
 
     #[test]
