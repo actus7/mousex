@@ -216,9 +216,9 @@ mod overlay;
 #[cfg(target_os = "macos")]
 pub use overlay::{show_identify, show_panel, IdentifyScreen, PanelPoll};
 #[cfg(target_os = "macos")]
-pub mod tap;
-#[cfg(target_os = "macos")]
 pub mod status_item;
+#[cfg(target_os = "macos")]
+pub mod tap;
 
 #[cfg(test)]
 mod tests {
