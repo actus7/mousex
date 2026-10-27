@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic updates are checked every 30 minutes instead of once a day. A check is a single request to GitHub; the package is downloaded only when there is a new version.
 - Windows: the MouseX agent re-creates the update task every time it starts, so the task follows the schedule of the installed version and comes back if it was deleted.
 
+### Security
+
+- Windows: the scheduled task definition is written to the MouseX folder in Program Files, which only administrators can change, instead of the user's temporary folder, where another program running as that user could swap it before it was registered.
+
 ## [1.1.5] - 2026-10-27
 
 ### Fixed

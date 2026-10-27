@@ -211,10 +211,13 @@ pub(crate) fn refresh_update_task() {
 }
 
 /// schtasks lê XML em UTF-16 LE com BOM.
+/// O XML fica na pasta de instalação (só administradores escrevem), nunca no %TEMP% do usuário: lá um
+/// processo sem privilégio trocaria o arquivo antes do schtasks elevado ler e ganharia uma tarefa SYSTEM.
 fn create_task(name: &str, xml: &str) -> Result<(), Box<dyn Error>> {
-    let path = std::env::temp_dir().join("mousex-task.xml");
+    let path = install_dir()?.join(format!(".task-{}.xml", std::process::id()));
     let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain(xml.encode_utf16().flat_map(u16::to_le_bytes)).collect();
-    std::fs::write(&path, utf16)?;
+    let _ = std::fs::remove_file(&path);
+    std::io::Write::write_all(&mut std::fs::File::create_new(&path)?, &utf16)?;
     let created = command("schtasks", &["/Create", "/TN", name, "/XML", &path.display().to_string(), "/F"]);
     let _ = std::fs::remove_file(&path);
     created?;
