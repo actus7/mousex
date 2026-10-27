@@ -1,5 +1,8 @@
 //! Linux server host: InputCapture barriers plus a tray icon.
-use super::InputGuard;
+use super::{
+    InputGuard,
+    common::{Latch, Mods, button_from},
+};
 use crate::config::data_dir;
 use mousex_core::{ScreenLayout, keymap, proto::MonitorInfo};
 use mousex_platform_linux::{Area, Captured, release_at, release_pending, set_holding, start_server_capture};
@@ -9,57 +12,7 @@ use std::{
     thread,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Button {
-    Left,
-    Right,
-    Middle,
-    X1,
-    X2,
-}
-
-// Same variants as Windows so the server can match both. Not all of them are produced here.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Event {
-    Key { scancode: u16, extended: bool, down: bool },
-    Button { button: Button, down: bool },
-    Move { x: i32, y: i32 },
-    Delta { dx: i32, dy: i32 },
-    Wheel { delta: i16, horizontal: bool },
-    DesktopSwitch,
-    Tray(TrayCommand),
-    DisplayChange,
-    Hotkey(Hotkey),
-    SessionLocked,
-    HooksRestored(bool),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hotkey {
-    Jump(u8),
-    ToggleLock,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TrayCommand {
-    Arrange,
-    ShowLog,
-    Pause,
-    LockCursor,
-    Reconnect,
-    Jump(u8),
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct TrayStatus {
-    pub machines: Vec<(String, bool)>,
-    pub active: bool,
-    pub paused: bool,
-    pub locked: bool,
-    pub portuguese: bool,
-}
+pub use super::common::{Button, Event, Hotkey, TrayCommand, TrayStatus};
 
 pub const EDITOR: &str = "mousex-editor";
 
@@ -194,91 +147,6 @@ fn map_captured(captured: Captured, mods: &mut Mods, latch: &mut Latch) -> Optio
                 return None;
             }
             Some(Event::Key { scancode, extended, down })
-        }
-    }
-}
-
-fn button_from(value: u8) -> Option<Button> {
-    Some(match value {
-        0 => Button::Left,
-        1 => Button::Right,
-        2 => Button::Middle,
-        3 => Button::X1,
-        4 => Button::X2,
-        _ => return None,
-    })
-}
-
-#[derive(Default)]
-struct Mods {
-    bits: u8,
-}
-
-impl Mods {
-    fn key(&mut self, scancode: u16, extended: bool, down: bool) -> bool {
-        let bit = match (scancode, extended) {
-            (0x1D, false) => 1,
-            (0x1D, true) => 2,
-            (0x38, false) => 4,
-            (0x38, true) => 8,
-            (0x2A, _) => 16,
-            (0x36, _) => 32,
-            _ => 0,
-        };
-        if bit != 0 {
-            if down {
-                self.bits |= bit;
-            } else {
-                self.bits &= !bit;
-            }
-            return false;
-        }
-        down && (scancode, extended) == (0x47, true) && self.all_held()
-    }
-
-    fn all_held(&self) -> bool {
-        self.bits & 0b11 != 0 && self.bits & 0b1100 != 0 && self.bits & 0b11_0000 != 0
-    }
-
-    fn hotkey(&self, scancode: u16, extended: bool) -> Option<Hotkey> {
-        match (scancode, extended) {
-            (0x46, false) => Some(Hotkey::ToggleLock),
-            (0x02..=0x0A, false) if self.all_held() => Some(Hotkey::Jump((scancode - 1) as u8)),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Default)]
-struct Latch {
-    held: u16,
-}
-
-impl Latch {
-    fn bit(scancode: u16, extended: bool) -> Option<u16> {
-        match (scancode, extended) {
-            (0x02..=0x0A, false) => Some(1 << (scancode - 2)),
-            (0x46, false) => Some(1 << 9),
-            _ => None,
-        }
-    }
-
-    fn key(&mut self, modifiers: &Mods, scancode: u16, extended: bool, down: bool) -> (bool, Option<Hotkey>) {
-        let Some(bit) = Self::bit(scancode, extended) else { return (false, None) };
-        if !down {
-            let swallowed = self.held & bit != 0;
-            self.held &= !bit;
-            return (swallowed, None);
-        }
-        if self.held & bit != 0 {
-            return (true, None);
-        }
-        match modifiers.hotkey(scancode, extended) {
-            Some(hotkey) => {
-                self.held |= bit;
-                (true, Some(hotkey))
-            }
-            None => (false, None),
         }
     }
 }

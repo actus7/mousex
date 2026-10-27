@@ -1,7 +1,7 @@
 //! Instalação no macOS: binários no Application Support do usuário e LaunchAgent (sem administrador).
 use crate::{
-    client_install::{AGENT, copy_binaries, machine_from_args, print_status, save_config},
-    config::data_dir,
+    client_install::{AGENT, copy_binaries, print_status, role_and_machine_from_args, save_role},
+    config::{Role, data_dir},
 };
 use std::{error::Error, path::PathBuf, process::Command};
 
@@ -45,16 +45,17 @@ fn escape(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// Cliente no Mac: `--role client [--machine NOME]`.
+/// `[--role server|client] [--machine NOME]` no Mac (cliente por padrão). O servidor é o computador do teclado
+/// e do mouse; os outros se instalam como cliente e pareiam com ele.
 pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
     let default =
         command("scutil", &["--get", "ComputerName"]).map(|s| s.trim().to_string()).unwrap_or_else(|_| "mac".into());
-    let machine = machine_from_args(args, default, "macOS")?;
+    let (role, machine) = role_and_machine_from_args(args, default)?;
     migrate_legacy()?;
     let data = data_dir();
     let bin = data.join("bin");
     copy_binaries(&bin)?;
-    save_config(&machine)?;
+    save_role(role, &machine)?;
     let agent = escape(&bin.join(AGENT).display().to_string());
     let errors = escape(&data.join("agent.err").display().to_string());
     let plist = format!(
@@ -78,11 +79,19 @@ pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
     let domain = domain()?;
     let _ = command("launchctl", &["bootout", &format!("{domain}/{LABEL}")]);
     command("launchctl", &["bootstrap", &domain, &path.display().to_string()])?;
-    println!("MouseX installed as client ({machine}) in {}.", bin.display());
+    let role_name = if role == Role::Server { "server" } else { "client" };
+    println!("MouseX installed as {role_name} ({machine}) in {}.", bin.display());
     println!("Starts automatically at every login. Log: {}", data.join("mousex.log").display());
-    println!(
-        "Grant Accessibility to \"mousex-agent\" in System Settings > Privacy & Security > Accessibility if macOS asks."
-    );
+    if role == Role::Server {
+        println!(
+            "Grant Accessibility and Input Monitoring to \"mousex-agent\" in System Settings > Privacy & Security if macOS asks."
+        );
+        println!("Other computers install as client on the same network and pair with this one.");
+    } else {
+        println!(
+            "Grant Accessibility to \"mousex-agent\" in System Settings > Privacy & Security > Accessibility if macOS asks."
+        );
+    }
     Ok(())
 }
 

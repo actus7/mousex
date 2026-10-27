@@ -59,9 +59,14 @@ pub fn open_log() {
 }
 
 /// Mac: o ícone e o loop do AppKit na thread principal; bloqueia até o processo acabar.
+/// Num computador servidor o menu é o do servidor (máquinas e comandos), não o do cliente.
 #[cfg(target_os = "macos")]
 pub fn run_menu_bar() {
+    use crate::config::{Config, Role};
     use mousex_platform_macos::status_item;
+    if Config::load(&data_dir()).is_some_and(|config| config.role == Role::Server) {
+        return crate::os::run_menu_bar();
+    }
     let current = lang();
     status_item::run(
         move || status_text(current, &link_status::get()),

@@ -80,15 +80,11 @@ impl Platform for MacPlatform {
     }
 
     fn clipboard_seq(&self) -> u32 {
-        mac::clipboard_seq() as u32
+        clipboard_seq()
     }
 
     fn clipboard_read(&self) -> Option<Clip> {
-        match mac::clipboard_read()? {
-            mac::Clip::Text(text) => Some(Clip::Text(text)),
-            mac::Clip::Png(png) => Some(Clip::Png(png)),
-            mac::Clip::Files(paths) => Some(Clip::Files(paths)),
-        }
+        clipboard_read()
     }
 
     fn monitors(&self) -> Vec<MonitorInfo> {
@@ -107,11 +103,7 @@ impl Platform for MacPlatform {
 
     /// Ctrl+Cmd+Q: o atalho de bloqueio do próprio macOS.
     fn identify(&mut self, screens: &[(String, u32)]) {
-        let found: Vec<mac::IdentifyScreen> = numbered(&local_monitors(), screens)
-            .into_iter()
-            .map(|(m, number)| mac::IdentifyScreen { x: m.x, y: m.y, width: m.width, height: m.height, number })
-            .collect();
-        mac::show_identify(&found);
+        show_identify(screens);
     }
 
     fn lock_screen(&mut self) {
@@ -126,13 +118,38 @@ impl Platform for MacPlatform {
     }
 
     fn clipboard_write(&mut self, clip: Clip) {
-        let native = match clip {
-            Clip::Text(text) => mac::Clip::Text(text),
-            Clip::Png(png) => mac::Clip::Png(png),
-            Clip::Files(paths) => mac::Clip::Files(paths),
-        };
-        let _ = mac::clipboard_write(&native);
+        clipboard_write(&clip);
     }
+}
+
+pub fn clipboard_seq() -> u32 {
+    mac::clipboard_seq() as u32
+}
+
+pub fn clipboard_read() -> Option<Clip> {
+    match mac::clipboard_read()? {
+        mac::Clip::Text(text) => Some(Clip::Text(text)),
+        mac::Clip::Png(png) => Some(Clip::Png(png)),
+        mac::Clip::Files(paths) => Some(Clip::Files(paths)),
+    }
+}
+
+pub fn clipboard_write(clip: &Clip) {
+    let native = match clip {
+        Clip::Text(text) => mac::Clip::Text(text.clone()),
+        Clip::Png(png) => mac::Clip::Png(png.clone()),
+        Clip::Files(paths) => mac::Clip::Files(paths.clone()),
+    };
+    let _ = mac::clipboard_write(&native);
+}
+
+/// Números nas telas (Identificar telas do editor). Ctrl+Cmd+Q é o atalho de bloqueio do próprio macOS.
+pub fn show_identify(screens: &[(String, u32)]) {
+    let found: Vec<mac::IdentifyScreen> = numbered(&local_monitors(), screens)
+        .into_iter()
+        .map(|(m, number)| mac::IdentifyScreen { x: m.x, y: m.y, width: m.width, height: m.height, number })
+        .collect();
+    mac::show_identify(&found);
 }
 
 /// No Mac o agente já roda como o usuário.
