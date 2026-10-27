@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- After changing a screen's resolution the cursor could only reach part of it. A client screen that grows or shrinks now keeps touching its neighbors (it grows toward the free side). If it no longer fits, that computer's screens are placed again instead of keeping the old size. Changes to this computer's own screens are noticed within 2 s.
+
 ## [1.1.4] - 2026-10-27
 
 ### Added

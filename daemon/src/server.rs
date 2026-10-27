@@ -33,6 +33,8 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// A cada intervalo, se houve entrada física há pouco, as outras máquinas são mantidas acordadas.
 const ACTIVITY_INTERVAL: Duration = Duration::from_secs(30);
 const ACTIVE_WINDOW: Duration = Duration::from_secs(60);
+/// Mesmo ritmo dos clientes para notar resolução nova nas telas deste computador.
+const HOME_MONITOR_POLL: Duration = Duration::from_secs(2);
 /// Bloqueio com entrada física recente foi pedido pelo usuário (Win+L); mais antigo é inatividade, e aí o
 /// usuário pode estar usando o teclado de outra máquina: ela não é bloqueada.
 const LOCK_INTENT_WINDOW: Duration = Duration::from_secs(10);
@@ -88,6 +90,8 @@ enum Msg {
     LayoutEdited,
     /// Relógio da atividade (manter as outras máquinas acordadas).
     Tick,
+    /// Telas deste computador mudaram (resolução, monitor ligado ou desligado).
+    HomeMonitorsChanged,
 }
 
 /// Editor de telas instalado ao lado do agente.
@@ -152,6 +156,22 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
             ticker.tick().await;
             if tick_tx.send(Msg::Tick).is_err() {
                 break;
+            }
+        }
+    });
+    // Resolução ou tela trocada neste computador: o layout passa a usar o tamanho novo, como nos clientes.
+    let monitor_tx = tx.clone();
+    tokio::spawn(async move {
+        let mut last = local_monitors();
+        let mut poll = tokio::time::interval(HOME_MONITOR_POLL);
+        loop {
+            poll.tick().await;
+            let now = local_monitors();
+            if now != last {
+                last = now;
+                if monitor_tx.send(Msg::HomeMonitorsChanged).is_err() {
+                    break;
+                }
             }
         }
     });
@@ -355,6 +375,10 @@ impl State {
                 }
             }
             Msg::Tick => self.keep_others_awake(),
+            Msg::HomeMonitorsChanged => {
+                log("this computer's screens changed; layout updated");
+                self.rebuild_layout();
+            }
             Msg::LayoutEdited => {
                 self.apply_home_arrangement();
                 self.rebuild_layout();
