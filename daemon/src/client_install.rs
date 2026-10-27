@@ -5,7 +5,8 @@ use std::{error::Error, path::Path, path::PathBuf};
 pub const CLI: &str = "mousex";
 pub const AGENT: &str = "mousex-agent";
 
-/// `--role client [--machine NOME]`; devolve o nome da máquina.
+/// `--role client [--machine NOME]`; devolve o nome da máquina. O Mac usa isto; o Linux tem o próprio parser.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn machine_from_args(args: &[String], default: String, os: &str) -> Result<String, Box<dyn Error>> {
     let mut machine = default;
     let mut rest = args.iter();
@@ -37,15 +38,23 @@ pub fn copy_binaries(bin: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 /// Grava a configuração de cliente mantendo pareamento e preferências de uma instalação anterior.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn save_config(machine: &str) -> Result<(), Box<dyn Error>> {
+    save_role(Role::Client, machine)
+}
+
+/// Saves the role. A client keeps its previous pairing; a server has none.
+pub fn save_role(role: Role, machine: &str) -> Result<(), Box<dyn Error>> {
     let data = data_dir();
-    let previous = Config::load(&data).filter(|c| c.role == Role::Client);
+    let previous = Config::load(&data);
     let config = Config {
-        role: Role::Client,
+        role,
         machine: machine.into(),
-        server_fingerprint: previous.as_ref().and_then(|c| c.server_fingerprint.clone()),
+        server_fingerprint: (role == Role::Client)
+            .then(|| previous.as_ref().and_then(|c| c.server_fingerprint.clone()))
+            .flatten(),
         auto_update: previous.as_ref().is_none_or(|c| c.auto_update),
-        remap_modifiers: previous.is_none_or(|c| c.remap_modifiers),
+        remap_modifiers: previous.as_ref().is_none_or(|c| c.remap_modifiers),
     };
     Ok(config.save(&data)?)
 }

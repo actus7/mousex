@@ -24,6 +24,10 @@ mousex-platform-macos = { path = "../platform-macos" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 mousex-platform-linux = { path = "../platform-linux" }
+ksni = { version = "0.2", optional = true }
+
+[features]
+tray = ["dep:ksni"]
 
 [dev-dependencies]
 rand = "0.8"

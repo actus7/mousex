@@ -1,3 +1,6 @@
+mod activity;
+#[cfg(target_os = "linux")]
+mod arrange;
 pub(crate) mod client;
 #[cfg(not(windows))]
 pub(crate) mod client_install;
@@ -12,8 +15,13 @@ pub(crate) mod install;
 #[cfg(target_os = "linux")]
 #[path = "linux_install.rs"]
 pub(crate) mod install;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) mod layout;
+#[cfg(target_os = "linux")]
+mod linux_tray;
+mod monitor;
+#[cfg(any(windows, target_os = "linux"))]
+mod os;
 #[cfg(windows)]
 pub(crate) mod platform;
 #[cfg(target_os = "macos")]
@@ -22,8 +30,10 @@ pub(crate) mod platform;
 #[cfg(target_os = "linux")]
 #[path = "linux_platform.rs"]
 pub(crate) mod platform;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) mod server;
+#[cfg(target_os = "linux")]
+mod side;
 #[cfg(windows)]
 mod supervisor;
 pub(crate) mod update;
@@ -65,7 +75,10 @@ usage:
   mousex install --role server|client [--machine NAME]  install or update
   mousex uninstall                                      remove (pairings and layout are kept)
   mousex status                                         show configuration, service state and recent log
-  mousex update                                         install the newest signed release now, if any
+  mousex monitor                                        open the live status window
+  mousex arrange                                        Linux main computer: open the screen editor
+  mousex side left|right [MACHINE]                      Linux main computer: put the other computer on that side
+  mousex update                                        install the newest signed release now, if any
   mousex version                                        print the version
   mousex run                                            run the agent in the foreground";
 
@@ -78,6 +91,11 @@ pub fn cli_main() {
         Some("install") => install::install(&args[1..]),
         Some("uninstall") => install::uninstall(),
         Some("status") => install::status(),
+        Some("monitor") => monitor::open(),
+        #[cfg(target_os = "linux")]
+        Some("arrange") => monitor::open_at("/arrange"),
+        #[cfg(target_os = "linux")]
+        Some("side") => side::cli(&args[1..]),
         Some("update") => update::update(),
         Some("version") => {
             println!("{}", env!("CARGO_PKG_VERSION"));
@@ -105,15 +123,36 @@ pub fn agent_main() {
     if !platform::prepare() {
         log("warning: platform setup incomplete (DPI on Windows, Accessibility on Mac, no graphical session on Linux)");
     }
+    #[cfg(target_os = "linux")]
+    arm_run_limit();
     #[cfg(not(windows))]
     update::schedule();
+    monitor::serve_background();
     if let Err(error) = run() {
         log(&format!("fatal error: {error}"));
         std::process::exit(1);
     }
 }
 
+/// One next Linux start only. The marker is removed as the limit is armed, and
+/// `systemctl stop` ends the service without Restart=always bringing it back.
+#[cfg(target_os = "linux")]
+fn arm_run_limit() {
+    let marker = data_dir().join("stop-after-5m");
+    if std::fs::remove_file(&marker).is_err() {
+        return;
+    }
+    log("this run stops automatically after 5 minutes");
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5 * 60));
+        log("5 minute run limit reached; stopping the agent");
+        let _ = std::process::Command::new("systemctl").args(["--user", "stop", "mousex.service"]).status();
+        std::process::exit(0);
+    });
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
+    activity::enable();
     let dir = data_dir();
     let config = Config::load(&dir).ok_or("configuração ausente; rode mousex install")?;
     let identity = DeviceIdentity::load_or_create(&dir)?;
@@ -121,10 +160,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
     runtime.block_on(async move {
         match config.role {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             Role::Server => server::run(config.machine, identity, dir).await.map_err(Into::into),
-            #[cfg(not(windows))]
-            Role::Server => Err("the server role is only available on Windows".into()),
+            #[cfg(not(any(windows, target_os = "linux")))]
+            Role::Server => Err("the server role is only available on Windows and Linux".into()),
             Role::Client => run_client(config, identity, dir).await,
         }
     })

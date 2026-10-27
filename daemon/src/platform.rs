@@ -151,6 +151,10 @@ pub fn clipboard_write(clip: &Clip) {
     let _ = mousex_native::clipboard_write(&native);
 }
 
+pub fn clipboard_seq() -> u32 {
+    mousex_native::clipboard_seq()
+}
+
 /// Abre arquivos copiados com os direitos do usuário comum (o agente roda elevado).
 pub fn as_standard_user<T>(f: impl FnOnce() -> T) -> std::io::Result<T> {
     mousex_native::as_standard_user(f)

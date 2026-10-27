@@ -57,10 +57,12 @@ pub async fn client_loop<P, L, LF, A, AF>(
 {
     let mut backoff = BACKOFF_START;
     loop {
+        crate::activity::set("looking", "");
         let mut wait = backoff;
         if let Some(address) = locate().await
             && let Ok(mut link) = net::connect(&endpoint, address).await
         {
+            crate::activity::set("connected", &address.to_string());
             let message = hello();
             // Hello antes da autorização: o servidor mostra o nome da máquina no diálogo de pareamento.
             if mousex_core::proto::write_control(&mut link.control_tx, &message).await.is_ok()
@@ -69,6 +71,7 @@ pub async fn client_loop<P, L, LF, A, AF>(
                 let started = std::time::Instant::now();
                 let rejected = session(link, &message, &mut platform).await;
                 platform.release_all();
+                crate::activity::set(if rejected { "rejected" } else { "looking" }, "");
                 if rejected {
                     wait = REJECTED_WAIT;
                 } else if started.elapsed() >= STABLE_SESSION {
@@ -76,6 +79,7 @@ pub async fn client_loop<P, L, LF, A, AF>(
                     wait = BACKOFF_START;
                 }
             } else {
+                crate::activity::set("rejected", "");
                 link.conn.close(REJECTED.into(), b"recusado");
             }
         }
