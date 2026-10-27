@@ -66,6 +66,8 @@ pub enum Captured {
         horizontal: bool,
     },
     SessionLocked,
+    /// The desktop ended the capture by itself while the cursor was on another computer: go home.
+    Released,
     /// Diagnostic line for the agent log. Not an input event.
     Note(String),
 }
@@ -204,10 +206,23 @@ async fn run(
     note(&events, "input capture enabled");
 
     let mut activated_stream = portal.receive_activated().await?;
+    let mut deactivated = portal.receive_deactivated().await?;
     let mut zones_changed = portal.receive_zones_changed().await?;
     let mut disabled = portal.receive_disabled().await?;
-    let mut locked_was = session_locked();
-    let mut lock_poll = tokio::time::interval(Duration::from_secs(1));
+    // `gdbus` to logind can take seconds: never in the loop that forwards keys and motion.
+    let lock_events = events.clone();
+    tokio::spawn(async move {
+        let mut locked_was = false;
+        let mut lock_poll = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            lock_poll.tick().await;
+            let locked = tokio::task::spawn_blocking(session_locked).await.unwrap_or(false);
+            if locked && !locked_was && lock_events.send(Captured::SessionLocked).is_err() {
+                break;
+            }
+            locked_was = locked;
+        }
+    });
     let mut fraction = (0.0f32, 0.0f32);
     let mut activation: Option<u32> = None;
     let mut fallback_release: Option<(i32, i32)> = None;
@@ -219,12 +234,16 @@ async fn run(
 
     loop {
         tokio::select! {
-            _ = lock_poll.tick() => {
-                let locked = session_locked();
-                if locked && !locked_was {
-                    let _ = events.send(Captured::SessionLocked);
+            Some(_) = deactivated.next() => {
+                // After our own Release `holding` and `activation` are already clear. Coming from the desktop
+                // with the cursor away, the server must come home, or it keeps waiting for motion that never comes.
+                if holding || activation.is_some() {
+                    holding = false;
+                    activation = None;
+                    PENDING.store(false, Ordering::Release);
+                    note(&events, "the desktop ended the capture; the cursor comes back to this computer");
+                    let _ = events.send(Captured::Released);
                 }
-                locked_was = locked;
             }
             Some(changed) = zones_changed.next() => {
                 if changed.zone_set().is_some_and(|id| id != zones_reply.zone_set()) {
@@ -239,6 +258,13 @@ async fn run(
                 }
             }
             Some(hit) = activated_stream.next() => {
+                if holding {
+                    // Activated again with the cursor still on the other computer: keep forwarding. Treating it
+                    // as a new edge hit stopped the forwarding, and nothing moved until the client went away.
+                    activation = hit.activation_id();
+                    note(&events, "input capture activated again while on the other computer; still there");
+                    continue;
+                }
                 activation = hit.activation_id();
                 let cursor = hit.cursor_position().unwrap_or((0.0, 0.0));
                 let armed_edge = match hit.barrier_id() {
@@ -254,7 +280,8 @@ async fn run(
             }
             Some(cmd) = commands.recv() => {
                 match cmd {
-                    Cmd::Hold => holding = true,
+                    // The desktop may have ended the capture already (Deactivated): nothing left to hold.
+                    Cmd::Hold => holding = activation.is_some(),
                     Cmd::Release(place) => {
                         holding = false;
                         let point = place.map(|point| away_from_edges(&zones, point)).or(fallback_release);

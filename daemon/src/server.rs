@@ -325,6 +325,9 @@ struct State {
     last_input: Instant,
     /// Sessão bloqueada: ninguém é mantido acordado até a próxima entrada física (após o desbloqueio).
     session_locked: bool,
+    /// Movimentos e teclas repassados ao remoto desde o último relógio (rastro no log).
+    remote_moves: u32,
+    remote_keys: u32,
 }
 
 impl State {
@@ -348,6 +351,8 @@ impl State {
             paused: false,
             last_input: Instant::now(),
             session_locked: false,
+            remote_moves: 0,
+            remote_keys: 0,
         }
     }
 
@@ -428,6 +433,9 @@ impl State {
                     self.apply(action);
                     return;
                 }
+                if down && self.remote.is_some() {
+                    self.remote_keys = self.remote_keys.saturating_add(1);
+                }
                 if let Some(client) = self.focused() {
                     match keymap::win_scancode_to_hid(scancode, extended) {
                         Some(hid) => client.send(Control::Key { hid, down }),
@@ -452,6 +460,7 @@ impl State {
             }
             Event::Delta { dx, dy } => {
                 if self.remote.is_some() && (dx, dy) != (0, 0) && plausible_delta(dx, dy) {
+                    self.remote_moves = self.remote_moves.saturating_add(1);
                     let action = self.router.on_delta(dx, dy);
                     self.apply(action);
                 }
@@ -706,11 +715,23 @@ impl State {
 
     /// Usuário ativo há pouco: esta máquina e as outras não bloqueiam a tela por inatividade.
     /// Quando ele sai, ninguém é mantido acordado e cada uma bloqueia no seu tempo normal.
-    fn keep_others_awake(&self) {
+    fn keep_others_awake(&mut self) {
+        if let Some(machine) = &self.remote {
+            // Rastro para o caso de o cursor "travar" no outro computador: mostra se a entrada ainda chegava.
+            log(&format!("on {machine}: {} moves and {} keys in the last 30 s", self.remote_moves, self.remote_keys));
+        }
+        (self.remote_moves, self.remote_keys) = (0, 0);
         if self.session_locked || self.last_input.elapsed() > ACTIVE_WINDOW {
             return;
         }
-        os::keep_awake();
+        // No Linux isto chama o X11 e o gdbus, que podem demorar: nunca no loop que roteia o mouse.
+        static AWAKE: AtomicBool = AtomicBool::new(false);
+        if !AWAKE.swap(true, Ordering::AcqRel) {
+            tokio::task::spawn_blocking(|| {
+                os::keep_awake();
+                AWAKE.store(false, Ordering::Release);
+            });
+        }
         for client in self.clients.values() {
             client.send(Control::Activity);
         }

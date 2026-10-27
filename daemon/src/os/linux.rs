@@ -179,6 +179,8 @@ fn map_captured(captured: Captured, mods: &mut Mods, latch: &mut Latch) -> Optio
         Captured::Delta { dx, dy } => Some(Event::Delta { dx, dy }),
         Captured::Wheel { delta, horizontal } => Some(Event::Wheel { delta, horizontal }),
         Captured::SessionLocked => Some(Event::SessionLocked),
+        // Same as a desktop switch on Windows: the key-ups will not come; forget them and go home.
+        Captured::Released => Some(Event::DesktopSwitch),
         Captured::Button { button, down } => Some(Event::Button { button: button_from(button)?, down }),
         Captured::Key { evdev, down } => {
             let hid = keymap::evdev_to_hid(evdev)?;
