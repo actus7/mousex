@@ -66,8 +66,8 @@ function App() {
   const dirty = layout !== doc.saved;
   // Telas deste computador são reais: movem (o Windows é rearrumado ao salvar), mas não mudam de tamanho nem somem.
   const isHome = m => m.machine === home;
-  // Números só nas telas deste computador: são as que o Identificar telas mostra nos monitores físicos.
-  const numbers = screenNumbers(layout.monitores.filter(isHome));
+  // Mesma regra do servidor: só telas conectadas, de todas as máquinas, da esquerda para a direita.
+  const numbers = screenNumbers(connected ? onlyConnected(layout.monitores, connected, home) : layout.monitores);
   const edges = sharedEdges(layout.monitores);
   const originX = 80 - Math.min(0, ...layout.monitores.map(m => m.x)) * zoom;
   const originY = 80 - Math.min(0, ...layout.monitores.map(m => m.y)) * zoom;
