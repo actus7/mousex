@@ -1,3 +1,4 @@
+pub mod about;
 pub mod discovery;
 pub mod i18n;
 pub mod identity;
@@ -98,6 +99,14 @@ impl ScreenLayout {
         }
         Ok(())
     }
+}
+
+/// Números da tela "Identificar telas": 1, 2, 3… por x crescente; empate de x vai para o de y menor (mais alto).
+/// Empate total (mesma posição) mantém a ordem do layout. O editor desenha o mesmo número em cada tela.
+pub fn screen_numbers(layout: &ScreenLayout) -> Vec<(&Monitor, u32)> {
+    let mut sorted: Vec<&Monitor> = layout.monitores.iter().collect();
+    sorted.sort_by_key(|m| (m.x, m.y));
+    sorted.into_iter().zip(1..).collect()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -287,6 +296,25 @@ impl KeyStateTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn screen(id: &str, x: i32, y: i32) -> Monitor {
+        Monitor { id: id.into(), machine: "m".into(), x, y, width: 10, height: 10, scale_fator: 1.0 }
+    }
+
+    #[test]
+    fn numeros_seguem_x_e_desempatam_por_y() {
+        let layout = ScreenLayout {
+            monitores: vec![screen("baixo-direita", 0, 50), screen("cima-esquerda", 0, -20), screen("meio", 40, 0)],
+        };
+        let order: Vec<(&str, u32)> = screen_numbers(&layout).into_iter().map(|(m, n)| (m.id.as_str(), n)).collect();
+        assert_eq!(order, [("cima-esquerda", 1), ("baixo-direita", 2), ("meio", 3)]);
+    }
+
+    #[test]
+    fn layout_vazio_nao_tem_numeros() {
+        assert!(screen_numbers(&ScreenLayout { monitores: vec![] }).is_empty());
+    }
+
     fn layout() -> ScreenLayout {
         ScreenLayout {
             monitores: vec![

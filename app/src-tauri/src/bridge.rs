@@ -61,9 +61,15 @@ pub fn load_layout() -> Result<Layout, String> {
     serde_json::from_slice(&bytes).map_err(|e| format!("{} {e}", t("Layout inválido:", "Invalid layout:")))
 }
 
-/// Valida, grava de forma atômica e fecha: o agente recarrega o layout quando o editor termina.
+/// Ids globais das telas conectadas quando o agente abriu o editor; `None` fora do agente.
 #[tauri::command]
-pub fn save_layout(app: tauri::AppHandle, layout: Layout) -> Result<(), String> {
+pub fn connected_screens() -> Option<Vec<String>> {
+    argument("--connected").map(|ids| ids.split(',').filter(|id| !id.is_empty()).map(String::from).collect())
+}
+
+/// Valida e grava de forma atômica; avisa o agente pela saída padrão para ele recarregar o layout.
+#[tauri::command]
+pub fn save_layout(layout: Layout) -> Result<(), String> {
     let mut ids = std::collections::HashSet::new();
     for (i, a) in layout.monitores.iter().enumerate() {
         if a.id.trim().is_empty()
@@ -91,8 +97,24 @@ pub fn save_layout(app: tauri::AppHandle, layout: Layout) -> Result<(), String> 
     let data = serde_json::to_vec_pretty(&layout).map_err(|e| e.to_string())?;
     crate::persistence::save(&layout_path()?, &data)
         .map_err(|e| format!("{} {e}", t("Não foi possível salvar:", "Could not save:")))?;
-    app.exit(0);
+    // ponytail: sem agente ouvindo (stdout fechado) o println falharia; o arquivo já foi gravado.
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    let _ = writeln!(out, "saved").and_then(|_| out.flush());
     Ok(())
+}
+
+/// Pede ao agente o overlay com o número de cada tela (mesmo canal de `save_layout`: a linha vai pela saída padrão).
+#[tauri::command]
+pub fn identify_screens() -> Result<(), String> {
+    if argument("--connected").is_none() {
+        return Err(t("Abra o editor pelo ícone do MouseX na bandeja.", "Open the editor from the MouseX tray icon."));
+    }
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    writeln!(out, "identify")
+        .and_then(|_| out.flush())
+        .map_err(|e| format!("{} {e}", t("Não foi possível identificar as telas:", "Could not identify the screens:")))
 }
 
 #[tauri::command]

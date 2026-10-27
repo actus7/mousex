@@ -12,5 +12,7 @@ edition = "2021"
 core-graphics = { version = "0.24", features = ["highsierra"] }
 core-foundation = "0.10"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSBitmapImageRep", "NSImageRep"] }
-objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSDictionary"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSBitmapImageRep", "NSImageRep", "NSWindow", "NSColor", "NSFont", "NSTextField", "NSText", "NSGraphics", "NSView", "NSControl", "NSResponder", "NSApplication", "NSStatusBar", "NSStatusItem", "NSMenu", "NSMenuItem", "NSAlert", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSDictionary", "NSTimer", "NSDate", "block2"] }
+# Bloco do NSTimer que atualiza o status na barra de menus.
+block2 = "0.6"

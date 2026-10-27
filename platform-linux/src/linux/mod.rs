@@ -2,6 +2,7 @@ mod capture;
 mod clipboard;
 mod desktop;
 mod eis;
+mod identify;
 mod x11;
 
 pub use capture::{
@@ -10,6 +11,7 @@ pub use capture::{
 
 pub use clipboard::{Clip, Clipboard, clipboard_seq};
 pub use desktop::{ask_yes_no, keep_awake, lock_screen, notify};
+pub use identify::show_identify;
 
 use crate::Rect;
 use std::{collections::BTreeSet, io, path::PathBuf};

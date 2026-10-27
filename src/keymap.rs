@@ -6,6 +6,9 @@ pub const MEDIA_NEXT: u16 = 0x1B5;
 pub const MEDIA_PREVIOUS: u16 = 0x1B6;
 pub const MEDIA_STOP: u16 = 0x1B7;
 
+/// Print Screen (HID 0x46): no Mac vira o atalho de captura, não um keycode (ver `print_screen_sequence`).
+pub const PRINT_SCREEN: u16 = 0x46;
+
 /// (scancode, extended, HID). NumLock é 0x45 estendido no Windows; Pause chega como 0x45 simples.
 // ponytail: busca linear em ~120 entradas; mapa só se aparecer no perfil.
 pub(crate) const TABLE: &[(u16, bool, u16)] = &[
@@ -151,7 +154,7 @@ pub fn hid_to_win_scancode(hid: u16) -> Option<(u16, bool)> {
     TABLE.iter().find(|&&(_, _, h)| h == hid).map(|&(s, e, _)| (s, e))
 }
 
-/// HID → virtual keycode do macOS (kVK_*). PrintScreen/ScrollLock/Pause viram F13–F15; F21–F24 viram F20.
+/// HID → virtual keycode do macOS (kVK_*). ScrollLock/Pause viram F13–F15; F21–F24 viram F20. PrintScreen tem tratamento próprio.
 /// Teclas físicas: o caractere final depende do layout do Mac (Brasileiro – ABNT2 para bater com o teclado).
 const MAC_TABLE: &[(u16, u16)] = &[
     (0x04, 0x00),
@@ -474,6 +477,18 @@ mod tests {
         for &(_, _, hid) in TABLE {
             assert!(hid_to_evdev(hid).is_some(), "hid {hid:#x} sem destino no Linux");
         }
+    }
+
+    #[test]
+    fn print_screen_vai_como_hid_46_estendido() {
+        assert_eq!(win_scancode_to_hid(0x37, true), Some(PRINT_SCREEN));
+        assert_eq!(
+            hid_to_win_scancode(PRINT_SCREEN),
+            Some((0x37, true)),
+            "injeção no Windows usa PrintScreen estendido"
+        );
+        assert_eq!(hid_to_evdev(PRINT_SCREEN), Some(99), "KEY_SYSRQ no Linux");
+        assert_eq!(win_scancode_to_hid(0x37, false), Some(0x55), "asterisco do teclado numérico não é PrintScreen");
     }
 
     #[test]

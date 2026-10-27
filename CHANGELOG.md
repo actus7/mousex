@@ -7,8 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-27
+
 ### Added
 
+- Windows: the last item of the tray menu shows the installed version; clicking it opens **About MouseX** (version, author, license and project page).
+- Arrange screens: the edges where two screens touch are highlighted on the canvas, which shows where the cursor crosses between them.
+- Arrange screens: **Undo** and **Redo** with Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y. A whole drag, a slider movement or a held arrow key counts as one step.
+- Arrange screens: light and dark themes follow the system setting, and the fonts are bundled with the app (no requests to Google Fonts).
+- Arrange screens: **Identify screens** shows a large number on every connected screen for 3 seconds, numbered left to right (ties broken top to bottom), on every computer (Windows, macOS and Linux X11; Wayland cannot position windows).
+- Mac and Linux client: menu bar icon (macOS) or tray icon (Linux, via StatusNotifierItem) showing the connection status, **Open log** and the version with **About MouseX**.
+
+### Fixed
+
+- Print Screen on the main computer works on a Mac receiving the cursor: it opens the area capture (Cmd+Shift+4), and Shift+Print Screen opens the full-screen capture (Cmd+Shift+3). On Windows and Linux it is passed through as the normal Print Screen key.
+
+## [1.1.6] - 2026-10-27
+
+### Changed
+
+- Automatic updates are checked every 30 minutes instead of once a day. A check is a single request to GitHub; the package is downloaded only when there is a new version.
+- Windows: the MouseX agent re-creates the update task every time it starts, so the task follows the schedule of the installed version and comes back if it was deleted.
+
+### Security
+
+- Windows: the scheduled task definition is written to the MouseX folder in Program Files, which only administrators can change, instead of the user's temporary folder, where another program running as that user could swap it before it was registered.
+
+## [1.1.5] - 2026-10-27
+
+### Fixed
+
+- After changing a screen's resolution the cursor could only reach part of it. A client screen that grows or shrinks now keeps touching its neighbors (it grows toward the free side). With no free side it grows to the left and pushes the screens on its left along, so the desk arrangement stays the same. If even that would move this computer's screens, that computer's screens are placed again instead of keeping the old size. Changes to this computer's own screens are noticed within 2 s.
+
+## [1.1.4] - 2026-10-27
+
+### Added
+
+- **Arrange screens…**: a **Connected screens only** button removes ghost screens (computers or monitors that are no longer connected). They could push newly connected screens away from yours, so the cursor stopped crossing between computers and only the hotkeys worked.
+- **Arrange screens…**: **Save** no longer closes the editor. The new layout applies at once, so you can test the cursor and keep adjusting.
 - Linux as a client computer: keyboard, mouse, media keys, clipboard (text, images, files and folders), screen lock and automatic updates, installed with the same `install.sh` as macOS. X11 sessions use XTest; Wayland sessions use the desktop's remote control permission (RemoteDesktop portal with libei, GNOME 46 or KDE Plasma 6.1 or newer), which is experimental.
 - Linux as the main computer, on Wayland: the agent places pointer barriers with the InputCapture portal on the screen edges that touch another computer, and while the cursor is on another computer it receives keys, motion, buttons and the wheel through libei. The other edges stay free, so a dock that hides at the bottom and the hot corners keep working; when the layout changes, the barriers move without asking for the permission again. Switch with `mousex install --role server`. Tested on GNOME 46 (Ubuntu 24.04), which asks to allow the capture every time MouseX starts. X11 sessions cannot be the main computer yet. Experimental.
 - `mousex monitor` opens a live status window in the browser (`127.0.0.1:41416`): state, role, service, pointer, last input and the recent log. It is available on every platform.
@@ -104,7 +140,11 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/actus7/mousex/compare/v1.1.6...v1.2.0
+[1.1.6]: https://github.com/actus7/mousex/compare/v1.1.5...v1.1.6
+[1.1.5]: https://github.com/actus7/mousex/compare/v1.1.4...v1.1.5
+[1.1.4]: https://github.com/actus7/mousex/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/actus7/mousex/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/actus7/mousex/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/actus7/mousex/compare/v1.1.0...v1.1.1

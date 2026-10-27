@@ -43,12 +43,14 @@ pub fn set(phase: &str, detail: &str) {
 }
 
 /// Latest remote pointer, as `monitor:x:y` (monitor is a zero-based index).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn pointer(text: &str) {
     let text = text.to_string();
     update(|live| live.pointer = text, false);
 }
 
 /// Latest button, key, wheel or release. Codes are translated by the status window.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn input(text: &str) {
     let text = text.to_string();
     update(|live| live.input = text, true);

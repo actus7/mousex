@@ -62,6 +62,59 @@ pub fn home_arrangement(saved: &ScreenLayout, home: &str, current: &[MonitorInfo
     })
 }
 
+fn overlaps(a: &Monitor, b: &Monitor) -> bool {
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+/// Resolução nova: a tela cresce ou encolhe a partir do canto que mantém as bordas que já encostavam
+/// (tela à esquerda de outra cresce para a esquerda) sem invadir vizinhas. Sem canto livre, cresce para a
+/// esquerda empurrando junto tudo o que está à esquerda dela; se nem assim couber, só muda o tamanho, e
+/// `rebuild` reposiciona a máquina.
+fn resize_in_place(all: &[Monitor], i: usize, width: i32, height: i32) -> Vec<Monitor> {
+    let m = &all[i];
+    if (width, height) == (m.width, m.height) {
+        return all.to_vec();
+    }
+    let others: Vec<&Monitor> = all.iter().filter(|o| o.id != m.id).collect();
+    let neighbors: Vec<&&Monitor> = others.iter().filter(|o| touching(m, o)).collect();
+    let (dw, dh) = (width - m.width, height - m.height);
+    let candidates: Vec<Monitor> = [(0, 0), (dw, 0), (0, dh), (dw, dh)]
+        .iter()
+        .map(|(ax, ay)| Monitor { x: m.x - ax, y: m.y - ay, width, height, ..m.clone() })
+        .filter(|c| others.iter().all(|o| !overlaps(o, c)))
+        .collect();
+    let keeps_contact = |c: &&Monitor| neighbors.iter().all(|o| touching(c, o));
+    let resized = candidates.iter().find(keeps_contact).or(candidates.first()).cloned();
+    let mut out = all.to_vec();
+    match resized {
+        Some(r) => out[i] = r,
+        None => out = push_left(all, i, width, height),
+    }
+    out
+}
+
+/// Cresce para a esquerda e desloca o que está inteiro à esquerda da tela: o arranjo da mesa continua igual.
+fn push_left(all: &[Monitor], i: usize, width: i32, height: i32) -> Vec<Monitor> {
+    let m = &all[i];
+    let dw = (width - m.width).max(0);
+    let pushed: Vec<Monitor> = all
+        .iter()
+        .enumerate()
+        .map(|(j, o)| match j {
+            _ if j == i => Monitor { x: m.x + m.width - width, width, height, ..m.clone() },
+            _ if o.x + o.width <= m.x => Monitor { x: o.x - dw, ..o.clone() },
+            _ => o.clone(),
+        })
+        .collect();
+    let fits = pushed.iter().enumerate().all(|(j, o)| j == i || !overlaps(o, &pushed[i]));
+    if fits {
+        return pushed;
+    }
+    let mut out = all.to_vec();
+    out[i] = Monitor { width, height, ..m.clone() };
+    out
+}
+
 /// Encostam quando dividem um trecho de borda (só o canto não basta): é por ali que o cursor passa.
 fn touching(a: &Monitor, b: &Monitor) -> bool {
     let rows = a.y < b.y + b.height && b.y < a.y + a.height;
@@ -89,15 +142,15 @@ fn connected(monitors: &[&Monitor]) -> bool {
 pub fn merge_monitors(layout: &ScreenLayout, machine: &str, monitors: &[MonitorInfo]) -> ScreenLayout {
     let current =
         |m: &Monitor| monitors.iter().find(|info| m.machine == machine && global_id(machine, &info.id) == m.id);
-    let resized = layout.monitores.iter().map(|m| match current(m) {
-        Some(info) => Monitor {
-            width: (info.width as f64 * m.scale_fator).round() as i32,
-            height: (info.height as f64 * m.scale_fator).round() as i32,
-            ..m.clone()
-        },
-        None => m.clone(),
-    });
-    let layout = ScreenLayout { monitores: resized.collect() };
+    let mut resized = layout.monitores.clone();
+    for i in 0..resized.len() {
+        if let Some(info) = current(&resized[i]) {
+            let width = (info.width as f64 * resized[i].scale_fator).round() as i32;
+            let height = (info.height as f64 * resized[i].scale_fator).round() as i32;
+            resized = resize_in_place(&resized, i, width, height);
+        }
+    }
+    let layout = ScreenLayout { monitores: resized };
     let known = |info: &&MonitorInfo| layout.monitores.iter().any(|m| m.id == global_id(machine, &info.id));
     let new: Vec<&MonitorInfo> = monitors.iter().filter(|info| !known(info)).collect();
     if new.is_empty() {
@@ -141,7 +194,23 @@ pub fn rebuild(
     } else {
         ensure_home(&ScreenLayout { monitores: Vec::new() }, home, home_monitors)
     };
-    clients.iter().fold(base, |layout, (machine, monitors)| add_machine(&layout, machine, monitors).unwrap_or(layout))
+    let homes: Vec<Monitor> = base.monitores.iter().filter(|m| m.machine == home).cloned().collect();
+    // Empurrar telas não pode tirar as da casa das coordenadas reais.
+    let home_kept =
+        |l: &ScreenLayout| homes.iter().all(|h| l.monitores.iter().any(|m| (&m.id, m.x, m.y) == (&h.id, h.x, h.y)));
+    clients.iter().fold(base, |layout, (machine, monitors)| {
+        // Tela que mudou de tamanho e não cabe onde estava: a máquina volta a entrar à direita, inteira,
+        // em vez de ficar presa no tamanho antigo (o cursor só alcançaria parte da tela).
+        add_machine(&layout, machine, monitors)
+            .ok()
+            .filter(home_kept)
+            .ok_or(())
+            .or_else(|_| {
+                let others = layout.monitores.iter().filter(|m| m.machine != *machine).cloned();
+                add_machine(&ScreenLayout { monitores: others.collect() }, machine, monitors)
+            })
+            .unwrap_or(layout)
+    })
 }
 
 /// Só a casa e as telas que cada cliente conectado informou agora: máquina ausente ou tela que sumiu
@@ -335,5 +404,70 @@ mod tests {
         let mac = updated.monitores.iter().find(|m| m.id == "mac:2").expect("mac");
         assert_eq!((mac.x, mac.y, mac.width, mac.height, mac.scale_fator), (0, -2000, 6880, 2880, 2.0));
         assert_eq!(updated.monitores.len(), 2);
+    }
+
+    /// Mesa do usuário: Mac à esquerda do ultrawide, encostado na borda direita.
+    fn mac_a_esquerda(width: i32) -> (ScreenLayout, Vec<MonitorInfo>) {
+        let home = [info("a", 0, 3440, 1440, 1.0)];
+        let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "home", &home);
+        let mut layout = merge_monitors(&layout, "mac", &[info("3", 0, width, 1440, 1.0)]);
+        let mac = layout.monitores.iter_mut().find(|m| m.id == "mac:3").expect("mac");
+        mac.x = -width;
+        (layout, home.to_vec())
+    }
+
+    #[test]
+    fn tela_que_cresce_encostada_na_vizinha_cresce_para_o_lado_livre() {
+        let (layout, home) = mac_a_esquerda(2560);
+        let now = [("mac".to_string(), vec![info("3", 0, 3440, 1440, 1.0)])];
+        let rebuilt = rebuild(&layout, "home", &home, &now);
+        let mac = rebuilt.monitores.iter().find(|m| m.id == "mac:3").expect("mac");
+        assert_eq!((mac.x, mac.width), (-3440, 3440));
+    }
+
+    #[test]
+    fn tela_que_encolhe_continua_encostada_na_vizinha() {
+        let (layout, home) = mac_a_esquerda(3440);
+        let now = [("mac".to_string(), vec![info("3", 0, 1920, 1080, 1.0)])];
+        let rebuilt = rebuild(&layout, "home", &home, &now);
+        let mac = rebuilt.monitores.iter().find(|m| m.id == "mac:3").expect("mac");
+        assert_eq!((mac.x, mac.y, mac.width, mac.height), (-1920, 0, 1920, 1080));
+    }
+
+    #[test]
+    fn tela_espremida_cresce_para_a_esquerda_empurrando_as_vizinhas() {
+        // Mac espremido entre o ultrawide e o win2: não cabe maior em nenhum canto.
+        let (mut layout, home) = mac_a_esquerda(2560);
+        layout.monitores.push(Monitor {
+            id: "win2:1".into(),
+            machine: "win2".into(),
+            x: -4480,
+            y: -500,
+            width: 1920,
+            height: 2440,
+            scale_fator: 1.0,
+        });
+        let now = [("mac".to_string(), vec![info("3", 0, 3440, 1440, 1.0)])];
+        let rebuilt = rebuild(&layout, "home", &home, &now);
+        let mac = rebuilt.monitores.iter().find(|m| m.id == "mac:3").expect("mac");
+        assert_eq!((mac.x, mac.width), (-3440, 3440));
+        let win2 = rebuilt.monitores.iter().find(|m| m.id == "win2:1").expect("win2");
+        assert_eq!((win2.x, win2.y), (-4480 - 880, -500));
+    }
+
+    #[test]
+    fn tela_que_so_cresceria_empurrando_a_casa_e_reposicionada() {
+        // Tela da casa à esquerda do Mac: ela não pode sair das coordenadas reais.
+        let home = [info("a", 0, 3440, 1440, 1.0), info("b", -4480, 1920, 2440, 1.0)];
+        let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "home", &home);
+        let mut layout = merge_monitors(&layout, "mac", &[info("3", 0, 2560, 1440, 1.0)]);
+        let mac = layout.monitores.iter_mut().find(|m| m.id == "mac:3").expect("mac");
+        mac.x = -2560;
+        let now = [("mac".to_string(), vec![info("3", 0, 3440, 1440, 1.0)])];
+        let rebuilt = rebuild(&layout, "home", &home, &now);
+        let b = rebuilt.monitores.iter().find(|m| m.id == "home:b").expect("b");
+        assert_eq!(b.x, -4480);
+        let mac = rebuilt.monitores.iter().find(|m| m.id == "mac:3").expect("mac");
+        assert_eq!((mac.x, mac.width), (3440, 3440));
     }
 }

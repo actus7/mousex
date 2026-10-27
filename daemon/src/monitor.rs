@@ -224,6 +224,7 @@ fn service_info() -> ServiceInfo {
     ServiceInfo { state: "unknown".into(), pid: String::new(), since: String::new() }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_service(text: &str) -> ServiceInfo {
     let mut info = ServiceInfo { state: "unknown".into(), pid: String::new(), since: String::new() };
     for line in text.lines() {

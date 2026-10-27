@@ -14,6 +14,7 @@ use mousex_core::{
     pairing::{Allowlist, PeerRecord, pairing_code},
     proto::{Control, MonitorInfo, Motion, read_control, write_control},
     router::{Action, Router, machines_in_order, plausible_delta},
+    screen_numbers,
 };
 use os::{Button, Event, Hotkey, TrayCommand, TrayStatus};
 use std::{
@@ -32,6 +33,8 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// A cada intervalo, se houve entrada física há pouco, as outras máquinas são mantidas acordadas.
 const ACTIVITY_INTERVAL: Duration = Duration::from_secs(30);
 const ACTIVE_WINDOW: Duration = Duration::from_secs(60);
+/// Mesmo ritmo dos clientes para notar resolução nova nas telas deste computador.
+const HOME_MONITOR_POLL: Duration = Duration::from_secs(2);
 /// Bloqueio com entrada física recente foi pedido pelo usuário (Win+L); mais antigo é inatividade, e aí o
 /// usuário pode estar usando o teclado de outra máquina: ela não é bloqueada.
 const LOCK_INTENT_WINDOW: Duration = Duration::from_secs(10);
@@ -88,8 +91,12 @@ enum Msg {
     /// `mousex side` ou a janela de status trocaram o lado do outro computador no layout salvo.
     #[cfg(target_os = "linux")]
     LayoutChanged,
+    /// Botão "Identificar telas" do editor.
+    Identify,
     /// Relógio da atividade (manter as outras máquinas acordadas).
     Tick,
+    /// Telas deste computador mudaram (resolução, monitor ligado ou desligado).
+    HomeMonitorsChanged,
 }
 
 /// Canal do loop para a janela de status, que roda no mesmo processo, pedir a releitura do layout. Reiniciar
@@ -170,6 +177,22 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
             }
         }
     });
+    // Resolução ou tela trocada neste computador: o layout passa a usar o tamanho novo, como nos clientes.
+    let monitor_tx = tx.clone();
+    tokio::spawn(async move {
+        let mut last = os::home_monitors();
+        let mut poll = tokio::time::interval(HOME_MONITOR_POLL);
+        loop {
+            poll.tick().await;
+            let now = os::home_monitors();
+            if now != last {
+                last = now;
+                if monitor_tx.send(Msg::HomeMonitorsChanged).is_err() {
+                    break;
+                }
+            }
+        }
+    });
     let mut state = State::new(machine, dir.join("layout.json"), tx);
     state.update_tray();
     while let Some(message) = rx.recv().await {
@@ -212,6 +235,11 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
         conn.close(crate::client::REJECTED.into(), b"recusado");
         return;
     };
+    // Nome deste servidor para o ícone do cliente (Mac e Linux); se a escrita falhar, a conexão já caiu.
+    if write_control(&mut control_tx, &Control::Server { machine: home.clone() }).await.is_err() {
+        conn.close(1u32.into(), b"escrita");
+        return;
+    }
     log(&format!("client connected: {machine}"));
     let (control, mut outgoing) = mpsc::unbounded_channel::<Control>();
     // Escritor único do stream de controle: o loop de roteamento nunca espera a rede.
@@ -379,16 +407,21 @@ impl State {
                 }
             }
             Msg::Tick => self.keep_others_awake(),
+            Msg::HomeMonitorsChanged => {
+                log("this computer's screens changed; layout updated");
+                self.rebuild_layout();
+            }
             Msg::LayoutEdited => {
                 self.apply_home_arrangement();
                 self.rebuild_layout();
-                log("layout reloaded after the editor closed");
+                log("layout reloaded from the editor");
             }
             #[cfg(target_os = "linux")]
             Msg::LayoutChanged => {
                 self.rebuild_layout();
                 log("layout reloaded: the other computer changed sides");
             }
+            Msg::Identify => self.identify_screens(),
             Msg::Clipboard { from, clip } => match &self.remote {
                 None if platform::clipboard_seq() != self.pull_seq => {
                     log("remote clipboard dropped: a newer copy was made on this computer");
@@ -675,17 +708,67 @@ impl State {
             self.editor_open.store(false, Ordering::Release);
             return;
         };
+        // Telas presentes agora: o editor usa para descartar as fantasmas (máquina ou tela que não volta mais).
+        let connected = connected_view(&self.layout, &self.home, &self.connected_monitors())
+            .monitores
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<Vec<_>>()
+            .join(",");
         let (layout, tx, open, home) =
             (self.layout_path.clone(), self.tx.clone(), self.editor_open.clone(), self.home.clone());
         tokio::task::spawn_blocking(move || {
-            match std::process::Command::new(&editor).arg("--layout").arg(&layout).arg("--home").arg(&home).status() {
-                Ok(_) => {
+            let child = std::process::Command::new(&editor)
+                .arg("--layout")
+                .arg(&layout)
+                .arg("--home")
+                .arg(&home)
+                .arg("--connected")
+                .arg(&connected)
+                .stdout(std::process::Stdio::piped())
+                .spawn();
+            match child {
+                Ok(mut child) => {
+                    // Cada "saved" do editor recarrega o layout sem esperar ele fechar. Thread à parte: se um
+                    // processo do WebView2 herdar o pipe, o EOF atrasa, mas o fim do editor não depende dele.
+                    if let Some(out) = child.stdout.take() {
+                        let tx = tx.clone();
+                        std::thread::spawn(move || {
+                            for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
+                                // Linhas do editor: "saved" recarrega o layout; "identify" pede os números nas telas.
+                                let _ = match line.trim() {
+                                    "saved" => tx.send(Msg::LayoutEdited),
+                                    "identify" => tx.send(Msg::Identify),
+                                    _ => Ok(()),
+                                };
+                            }
+                        });
+                    }
+                    let _ = child.wait();
                     let _ = tx.send(Msg::LayoutEdited);
                 }
                 Err(error) => log(&format!("failed to open the editor: {error}")),
             }
             open.store(false, Ordering::Release);
         });
+    }
+
+    /// "Identificar telas": número em cada monitor das máquinas conectadas, a casa incluída. A numeração segue
+    /// `screen_numbers` sobre as telas conectadas (as ausentes não aparecem no editor, então não ganham número).
+    fn identify_screens(&self) {
+        let view = connected_view(&self.layout, &self.home, &self.connected_monitors());
+        let mut per_machine: HashMap<&str, Vec<(String, u32)>> = HashMap::new();
+        for (monitor, number) in screen_numbers(&view) {
+            per_machine.entry(monitor.machine.as_str()).or_default().push((native_id(&monitor.id).into(), number));
+        }
+        if let Some(local) = per_machine.get(self.home.as_str()) {
+            crate::platform::show_identify(local);
+        }
+        for (machine, client) in &self.clients {
+            if let Some(screens) = per_machine.get(machine.as_str()) {
+                client.send(Control::Identify { screens: screens.clone() });
+            }
+        }
     }
 
     fn connected_monitors(&self) -> Vec<(String, Vec<MonitorInfo>)> {

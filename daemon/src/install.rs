@@ -169,7 +169,8 @@ pub fn task_xml(exe: &Path, user: &str) -> String {
     )
 }
 
-/// Todo dia (hora sorteada na janela de 4 h, para não baterem todos juntos no GitHub) e 10 min após ligar.
+/// A cada 30 min e 10 min após ligar. Conferir é um único redirecionamento do GitHub (sem API nem limite);
+/// só baixa quando há versão nova.
 pub fn update_task_xml(cli: &Path) -> String {
     let cli = escape(&cli.display().to_string());
     format!(
@@ -178,7 +179,7 @@ pub fn update_task_xml(cli: &Path) -> String {
   <RegistrationInfo><Description>MouseX: automatic updates (signed releases only)</Description></RegistrationInfo>
   <Triggers>
     <BootTrigger><Enabled>true</Enabled><Delay>PT10M</Delay></BootTrigger>
-    <CalendarTrigger><StartBoundary>2026-01-01T12:00:00</StartBoundary><Enabled>true</Enabled><RandomDelay>PT4H</RandomDelay><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>
+    <CalendarTrigger><Repetition><Interval>PT30M</Interval><Duration>P1D</Duration></Repetition><StartBoundary>2026-01-01T00:00:00</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>
   </Triggers>
   <Principals><Principal id="System"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -196,11 +197,27 @@ pub fn update_task_xml(cli: &Path) -> String {
     )
 }
 
+/// O update só troca os binários: o agente instalado (elevado) recria a tarefa de atualização ao subir,
+/// para ela seguir o agendamento da versão atual e voltar se tiver sido apagada.
+pub(crate) fn refresh_update_task() {
+    let Ok(dir) = install_dir() else { return };
+    let installed = std::env::current_exe().is_ok_and(|exe| exe.parent() == Some(dir.as_path()));
+    if !installed {
+        return;
+    }
+    if let Err(error) = create_task(UPDATE_TASK, &update_task_xml(&dir.join(CLI))) {
+        crate::log(&format!("update task could not be refreshed: {error}"));
+    }
+}
+
 /// schtasks lê XML em UTF-16 LE com BOM.
+/// O XML fica na pasta de instalação (só administradores escrevem), nunca no %TEMP% do usuário: lá um
+/// processo sem privilégio trocaria o arquivo antes do schtasks elevado ler e ganharia uma tarefa SYSTEM.
 fn create_task(name: &str, xml: &str) -> Result<(), Box<dyn Error>> {
-    let path = std::env::temp_dir().join("mousex-task.xml");
+    let path = install_dir()?.join(format!(".task-{}.xml", std::process::id()));
     let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain(xml.encode_utf16().flat_map(u16::to_le_bytes)).collect();
-    std::fs::write(&path, utf16)?;
+    let _ = std::fs::remove_file(&path);
+    std::io::Write::write_all(&mut std::fs::File::create_new(&path)?, &utf16)?;
     let created = command("schtasks", &["/Create", "/TN", name, "/XML", &path.display().to_string(), "/F"]);
     let _ = std::fs::remove_file(&path);
     created?;
@@ -493,7 +510,7 @@ mod tests {
         let xml = update_task_xml(Path::new(r"C:\Program Files\MouseX\mousex.exe"));
         assert!(xml.contains("<UserId>S-1-5-18</UserId>"), "SYSTEM grava em Program Files sem UAC");
         assert!(xml.contains(r"<Command>C:\Program Files\MouseX\mousex.exe</Command><Arguments>update</Arguments>"));
-        assert!(xml.contains("<RandomDelay>PT4H</RandomDelay>") && xml.contains("<BootTrigger>"));
+        assert!(xml.contains("<Interval>PT30M</Interval>") && xml.contains("<BootTrigger>"));
     }
 
     #[test]

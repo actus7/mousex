@@ -1,4 +1,5 @@
-//! Ícone na bandeja: status das máquinas, pausar, prender cursor, reconectar, "Arrumar telas…" e "Abrir log".
+//! Ícone na bandeja: status das máquinas, pausar, prender cursor, reconectar, "Arrumar telas…", "Abrir log"
+//! e, por último, a versão instalada, que abre o "Sobre".
 //! Também avisa mudança de monitores (WM_DISPLAYCHANGE) e bloqueio da sessão (WM_WTSSESSION_CHANGE).
 //! Janela oculta de nível superior numa thread própria; eventos saem pelo mesmo canal dos hooks.
 use super::{publish, Event, TrayCommand};
@@ -29,6 +30,8 @@ const MENU_LOG: usize = 2;
 const MENU_PAUSE: usize = 3;
 const MENU_LOCK: usize = 4;
 const MENU_RECONNECT: usize = 5;
+/// Último item: a versão instalada; abre o "Sobre".
+const MENU_ABOUT: usize = 6;
 /// Máquina N do menu: MENU_JUMP + N.
 const MENU_JUMP: usize = 100;
 /// Recursos de ícone embutidos pelo build: 1 = ativo, 2 = cinza (nenhuma máquina conectada ou pausado).
@@ -101,8 +104,20 @@ fn menu_items(status: &TrayStatus) -> Vec<(usize, String, u32)> {
         (0, SEPARATOR.into(), MF_SEPARATOR),
         (MENU_ARRANGE, t("Arrumar telas…", "Arrange screens…"), MF_STRING),
         (MENU_LOG, t("Abrir log", "Open log"), MF_STRING),
+        (0, SEPARATOR.into(), MF_SEPARATOR),
+        (MENU_ABOUT, format!("MouseX {}", env!("CARGO_PKG_VERSION")), MF_STRING),
     ]);
     items
+}
+
+fn about_text(portuguese: bool) -> String {
+    mousex_core::about::about_text(
+        portuguese,
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_AUTHORS"),
+        env!("CARGO_PKG_LICENSE"),
+        env!("CARGO_PKG_REPOSITORY"),
+    )
 }
 
 fn tooltip(status: &TrayStatus) -> String {
@@ -212,7 +227,13 @@ fn show_menu(hwnd: HWND) {
         DestroyMenu(menu);
         command as usize
     };
-    if let Some(command) = command_for(command) {
+    if command == MENU_ABOUT {
+        // Thread própria: a caixa é modal e a janela da bandeja precisa seguir recebendo mensagens.
+        let text = about_text(status().portuguese);
+        let title = if status().portuguese { "Sobre o MouseX" } else { "About MouseX" };
+        let _ =
+            thread::Builder::new().name("mousex-about".into()).spawn(move || super::show_message(title, &text, false));
+    } else if let Some(command) = command_for(command) {
         publish(Event::Tray(command));
     }
 }
@@ -337,6 +358,8 @@ mod tests {
         );
         assert!(items.iter().any(|(id, _, flags)| *id == MENU_LOCK && flags & MF_CHECKED != 0), "cursor preso marcado");
         assert!(items.iter().any(|(id, _, flags)| *id == MENU_PAUSE && flags & MF_CHECKED == 0));
+        let version = format!("MouseX {}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(items.last(), Some(&(MENU_ABOUT, version, MF_STRING)), "versão é o último item");
     }
 
     #[test]
@@ -344,6 +367,7 @@ mod tests {
         assert_eq!(command_for(MENU_JUMP + 3), Some(TrayCommand::Jump(3)));
         assert_eq!(command_for(MENU_RECONNECT), Some(TrayCommand::Reconnect));
         assert_eq!(command_for(0), None, "clicar fora do menu");
+        assert_eq!(command_for(MENU_ABOUT), None, "o Sobre é aberto pela própria bandeja");
         assert_eq!(command_for(MENU_JUMP + 10), None);
     }
 
@@ -356,6 +380,7 @@ mod tests {
         );
         assert_eq!(tooltip(&TrayStatus::default()), "MouseX — no other computer connected");
         let english = TrayStatus { portuguese: false, ..sample() };
+        assert!(about_text(false).contains("License: MIT or Apache-2.0"));
         assert!(menu_items(&english).iter().any(|(id, text, _)| *id == MENU_ARRANGE && text == "Arrange screens…"));
     }
 }

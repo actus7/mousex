@@ -4,8 +4,11 @@ mod arrange;
 pub(crate) mod client;
 #[cfg(not(windows))]
 pub(crate) mod client_install;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) mod client_tray;
 pub(crate) mod clip;
 pub(crate) mod config;
+pub(crate) mod link_status;
 // Só o servidor (Windows) arruma as telas.
 #[cfg(windows)]
 pub(crate) mod install;
@@ -118,6 +121,7 @@ pub fn agent_main() {
     // A tarefa inicia o vigia; ele inicia o agente de verdade com `worker` e o religa se cair.
     #[cfg(windows)]
     if std::env::args().nth(1).as_deref() != Some(supervisor::WORKER) {
+        install::refresh_update_task();
         return supervisor::supervise();
     }
     if !platform::prepare() {
@@ -128,6 +132,17 @@ pub fn agent_main() {
     #[cfg(not(windows))]
     update::schedule();
     monitor::serve_background();
+    // O AppKit só mostra o ícone da barra de menus na thread principal, então o agente vai para outra.
+    #[cfg(target_os = "macos")]
+    {
+        std::thread::spawn(run_or_exit);
+        client_tray::run_menu_bar();
+    }
+    #[cfg(not(target_os = "macos"))]
+    run_or_exit();
+}
+
+fn run_or_exit() {
     if let Err(error) = run() {
         log(&format!("fatal error: {error}"));
         std::process::exit(1);
@@ -175,6 +190,8 @@ async fn run_client(config: Config, identity: DeviceIdentity, dir: std::path::Pa
     let server_fp = Arc::new(Mutex::new(config.server_fingerprint.clone()));
     let cache = dir.join("last_server.json");
     log(&format!("client {} started, {} monitor(s)", config.machine, monitors.len()));
+    #[cfg(target_os = "linux")]
+    client_tray::start().await;
 
     let locate = {
         let server_fp = server_fp.clone();

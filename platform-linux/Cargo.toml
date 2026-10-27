@@ -10,7 +10,7 @@ edition = "2024"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Mesma versão do x11rb que o arboard usa: uma cópia só no binário.
-x11rb = { version = "0.13", features = ["xtest", "randr", "xfixes"] }
+x11rb = { version = "0.13", features = ["xtest", "randr", "xfixes", "shape"] }
 arboard = "3.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # "screencast": o remote_desktop do ashpd 0.13 não compila sem ele.
@@ -20,3 +20,5 @@ tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 futures-util = { version = "0.3", default-features = false }
 # CLOCK_MONOTONIC para os frames do libei (mesma versão que o reis já usa).
 rustix = { version = "1", default-features = false, features = ["std", "time"] }
+# Ícone na bandeja (StatusNotifierItem pelo D-Bus); o padrão já usa tokio, que o agente tem.
+ksni = "0.3"
