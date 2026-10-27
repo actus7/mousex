@@ -18,12 +18,12 @@ pub(crate) mod install;
 #[cfg(target_os = "linux")]
 #[path = "linux_install.rs"]
 pub(crate) mod install;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(crate) mod layout;
 #[cfg(target_os = "linux")]
 mod linux_tray;
 mod monitor;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod os;
 #[cfg(windows)]
 pub(crate) mod platform;
@@ -33,7 +33,7 @@ pub(crate) mod platform;
 #[cfg(target_os = "linux")]
 #[path = "linux_platform.rs"]
 pub(crate) mod platform;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(crate) mod server;
 #[cfg(target_os = "linux")]
 mod side;
@@ -178,10 +178,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
     runtime.block_on(async move {
         match config.role {
-            #[cfg(any(windows, target_os = "linux"))]
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             Role::Server => server::run(config.machine, identity, dir).await.map_err(Into::into),
-            #[cfg(not(any(windows, target_os = "linux")))]
-            Role::Server => Err("the server role is only available on Windows and Linux".into()),
+            #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+            Role::Server => Err("the server role is only available on Windows, macOS and Linux".into()),
             Role::Client => run_client(config, identity, dir).await,
         }
     })

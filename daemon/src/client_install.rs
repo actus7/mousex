@@ -5,20 +5,21 @@ use std::{error::Error, path::Path, path::PathBuf};
 pub const CLI: &str = "mousex";
 pub const AGENT: &str = "mousex-agent";
 
-/// `--role client [--machine NOME]`; devolve o nome da máquina. O Mac usa isto; o Linux tem o próprio parser.
+/// `[--role server|client] [--machine NOME]` no Mac; devolve o papel (cliente por padrão) e o nome da máquina.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub fn machine_from_args(args: &[String], default: String, os: &str) -> Result<String, Box<dyn Error>> {
+pub fn role_and_machine_from_args(args: &[String], default: String) -> Result<(Role, String), Box<dyn Error>> {
+    let mut role = Role::Client;
     let mut machine = default;
     let mut rest = args.iter();
     while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next().map(String::as_str)) {
-            ("--role", Some("client")) => {}
-            ("--role", Some(_)) => return Err(format!("on {os} only the client role is available").into()),
+            ("--role", Some("server")) => role = Role::Server,
+            ("--role", Some("client")) => role = Role::Client,
             ("--machine", Some(name)) if !name.trim().is_empty() => machine = name.trim().into(),
-            _ => return Err("uso: mousex install --role client [--machine NOME]".into()),
+            _ => return Err("uso: mousex install [--role server|client] [--machine NOME]".into()),
         }
     }
-    Ok(machine)
+    Ok((role, machine))
 }
 
 /// Copia `mousex` e `mousex-agent` da pasta deste executável para `bin`.
@@ -35,12 +36,6 @@ pub fn copy_binaries(bin: &Path) -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
-}
-
-/// Grava a configuração de cliente mantendo pareamento e preferências de uma instalação anterior.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub fn save_config(machine: &str) -> Result<(), Box<dyn Error>> {
-    save_role(Role::Client, machine)
 }
 
 /// Saves the role. A client keeps its previous pairing; a server has none.
@@ -89,18 +84,18 @@ mod tests {
 
     #[test]
     fn nome_da_maquina_vem_do_argumento_ou_do_padrao() {
-        assert_eq!(machine_from_args(&args(&["--role", "client"]), "host".into(), "Linux").unwrap(), "host");
+        assert_eq!(role_and_machine_from_args(&args(&["--role", "client"]), "host".into()).unwrap().1, "host");
         assert_eq!(
-            machine_from_args(&args(&["--role", "client", "--machine", " note "]), "host".into(), "Linux").unwrap(),
-            "note"
+            role_and_machine_from_args(&args(&["--role", "client", "--machine", " note "]), "host".into()).unwrap(),
+            (Role::Client, "note".into())
         );
     }
 
     #[test]
     fn papel_de_servidor_e_argumento_estranho_sao_recusados() {
-        let error = machine_from_args(&args(&["--role", "server"]), "h".into(), "Linux").unwrap_err();
-        assert!(error.to_string().contains("only the client"));
-        assert!(machine_from_args(&args(&["--machine"]), "h".into(), "Linux").is_err());
-        assert!(machine_from_args(&args(&["--foo", "bar"]), "h".into(), "Linux").is_err());
+        assert_eq!(role_and_machine_from_args(&args(&["--role", "server"]), "h".into()).unwrap().0, Role::Server);
+        assert!(role_and_machine_from_args(&args(&["--role", "foo"]), "h".into()).is_err());
+        assert!(role_and_machine_from_args(&args(&["--machine"]), "h".into()).is_err());
+        assert!(role_and_machine_from_args(&args(&["--foo", "bar"]), "h".into()).is_err());
     }
 }
