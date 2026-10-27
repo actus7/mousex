@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-10-27
+
+### Changed
+
+- Automatic updates are checked every 30 minutes instead of once a day. A check is a single request to GitHub; the package is downloaded only when there is a new version.
+- Windows: the MouseX agent re-creates the update task every time it starts, so the task follows the schedule of the installed version and comes back if it was deleted.
+
 ## [1.1.5] - 2026-10-27
 
 ### Fixed
@@ -106,7 +113,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.5...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.6...HEAD
+[1.1.6]: https://github.com/actus7/mousex/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/actus7/mousex/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/actus7/mousex/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/actus7/mousex/compare/v1.1.2...v1.1.3
