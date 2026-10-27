@@ -14,7 +14,7 @@ x11rb = { version = "0.13", features = ["xtest", "randr", "xfixes", "shape"] }
 arboard = "3.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # "screencast": o remote_desktop do ashpd 0.13 não compila sem ele.
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast", "input_capture"] }
 reis = { version = "0.7", features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 futures-util = { version = "0.3", default-features = false }

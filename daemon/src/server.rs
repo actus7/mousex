@@ -4,8 +4,7 @@ use crate::platform::{clipboard_read, clipboard_write};
 use crate::{
     clip,
     layout::{connected_view, home_arrangement, native_id, rebuild},
-    log,
-    platform::{button_to_u8, local_monitors},
+    log, os, platform,
 };
 use mousex_core::{
     ScreenLayout,
@@ -17,7 +16,7 @@ use mousex_core::{
     router::{Action, Router, machines_in_order, plausible_delta},
     screen_numbers,
 };
-use mousex_native::{Event, Hooks, Hotkey, Injector, TrayCommand, TrayStatus};
+use os::{Button, Event, Hotkey, TrayCommand, TrayStatus};
 use std::{
     collections::{BTreeSet, HashMap},
     io,
@@ -89,6 +88,9 @@ enum Msg {
     },
     /// Editor fechado: o layout salvo pode ter mudado.
     LayoutEdited,
+    /// `mousex side` ou a janela de status trocaram o lado do outro computador no layout salvo.
+    #[cfg(target_os = "linux")]
+    LayoutChanged,
     /// Botão "Identificar telas" do editor.
     Identify,
     /// Relógio da atividade (manter as outras máquinas acordadas).
@@ -97,8 +99,19 @@ enum Msg {
     HomeMonitorsChanged,
 }
 
+/// Canal do loop para a janela de status, que roda no mesmo processo, pedir a releitura do layout. Reiniciar
+/// o agente não serve: no GNOME isso pede de novo a permissão de capturar teclado e mouse.
+#[cfg(target_os = "linux")]
+static RELOAD: std::sync::OnceLock<mpsc::UnboundedSender<Msg>> = std::sync::OnceLock::new();
+
+/// Relê o layout salvo no agente deste processo; `false` se o agente não roda aqui.
+#[cfg(target_os = "linux")]
+pub fn reload_layout() -> bool {
+    RELOAD.get().is_some_and(|tx| tx.send(Msg::LayoutChanged).is_ok())
+}
+
 /// Editor de telas instalado ao lado do agente.
-const EDITOR: &str = "mousex-editor.exe";
+const EDITOR: &str = os::EDITOR;
 
 struct Client {
     conn: quinn::Connection,
@@ -137,11 +150,14 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
     let _advertiser =
         bind_with_retry(|| mousex_core::discovery::Advertiser::start(&identity.fingerprint, &machine, net::PORT))
             .await?;
-    let (_hooks, events) = Hooks::start()?;
-    if let Err(error) = mousex_native::start_tray() {
-        log(&format!("tray icon unavailable: {error}"));
-    }
     let (tx, mut rx) = mpsc::unbounded_channel();
+    #[cfg(target_os = "linux")]
+    let _ = RELOAD.set(tx.clone());
+    tokio::spawn(accept_loop(endpoint, tx.clone(), dir.clone(), machine.clone()));
+    log(&format!("server {machine} listening on port {}", net::PORT));
+    crate::activity::set("listening", "");
+    // Capture may wait on the portal dialog. The port is already open.
+    let (_input, events) = os::start_input()?;
     let hook_tx = tx.clone();
     // Ponte da thread dos hooks (canal std) para o loop tokio; o hook em si nunca espera.
     std::thread::Builder::new().name("mousex-ponte".into()).spawn(move || {
@@ -151,7 +167,6 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
             }
         }
     })?;
-    tokio::spawn(accept_loop(endpoint, tx.clone(), dir.clone(), machine.clone()));
     let tick_tx = tx.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(ACTIVITY_INTERVAL);
@@ -165,11 +180,11 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
     // Resolução ou tela trocada neste computador: o layout passa a usar o tamanho novo, como nos clientes.
     let monitor_tx = tx.clone();
     tokio::spawn(async move {
-        let mut last = local_monitors();
+        let mut last = os::home_monitors();
         let mut poll = tokio::time::interval(HOME_MONITOR_POLL);
         loop {
             poll.tick().await;
-            let now = local_monitors();
+            let now = os::home_monitors();
             if now != last {
                 last = now;
                 if monitor_tx.send(Msg::HomeMonitorsChanged).is_err() {
@@ -178,7 +193,6 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
             }
         }
     });
-    log(&format!("server {machine} listening on port {}", net::PORT));
     let mut state = State::new(machine, dir.join("layout.json"), tx);
     state.update_tray();
     while let Some(message) = rx.recv().await {
@@ -196,6 +210,13 @@ async fn accept_loop(endpoint: quinn::Endpoint, tx: mpsc::UnboundedSender<Msg>, 
             Err(net::NetError::Closed) => break,
             Err(error) => log(&format!("connection refused: {error}")),
         }
+    }
+}
+
+fn close_reason(conn: &quinn::Connection) -> String {
+    match conn.close_reason() {
+        Some(error) => error.to_string(),
+        None => "control stream ended".into(),
     }
 }
 
@@ -254,7 +275,7 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
         }
     }
     clip_task.abort();
-    log(&format!("client disconnected: {machine}"));
+    log(&format!("client disconnected: {machine} ({})", close_reason(&conn)));
     let _ = tx.send(Msg::Disconnected { machine, id });
 }
 
@@ -298,7 +319,7 @@ async fn authorize(
         format!("Allow \"{name}\" to be controlled by this computer's keyboard and mouse?\n\nCode: {code:06}\n\nConfirm only if the same code is shown on the other computer."),
     );
     let title = mousex_core::i18n::tr("MouseX — pareamento", "MouseX — pairing");
-    let accepted = tokio::task::spawn_blocking(move || mousex_native::ask_yes_no(title, &text)).await.unwrap_or(false);
+    let accepted = tokio::task::spawn_blocking(move || platform::ask_yes_no(title, &text)).await.unwrap_or(false);
     PAIRING_OPEN.store(false, Ordering::Release);
     if !accepted {
         if let Ok(mut rejections) = REJECTIONS.lock() {
@@ -319,8 +340,7 @@ struct State {
     /// Monitor (id global) e posição local atuais do cursor remoto, para cliques.
     cursor: (String, i32, i32),
     held: BTreeSet<(u16, bool)>,
-    held_buttons: BTreeSet<mousex_native::Button>,
-    local: Injector,
+    held_buttons: BTreeSet<Button>,
     /// Compartilhado com as tasks bloqueantes de clipboard (leitura e escrita fora do loop).
     home_clip_seq: Arc<AtomicU32>,
     /// Clipboard da casa quando o cursor voltou: resposta tardia do remoto não sobrescreve cópia mais nova.
@@ -333,11 +353,14 @@ struct State {
     last_input: Instant,
     /// Sessão bloqueada: ninguém é mantido acordado até a próxima entrada física (após o desbloqueio).
     session_locked: bool,
+    /// Movimentos e teclas repassados ao remoto desde o último relógio (rastro no log).
+    remote_moves: u32,
+    remote_keys: u32,
 }
 
 impl State {
     fn new(home: String, layout_path: PathBuf, tx: mpsc::UnboundedSender<Msg>) -> Self {
-        let layout = rebuild(&read_saved(&layout_path), &home, &local_monitors(), &[]);
+        let layout = rebuild(&read_saved(&layout_path), &home, &os::home_monitors(), &[]);
         let router = Router::new(connected_view(&layout, &home, &[]), &home);
         Self {
             home,
@@ -349,14 +372,15 @@ impl State {
             cursor: (String::new(), 0, 0),
             held: BTreeSet::new(),
             held_buttons: BTreeSet::new(),
-            local: Injector::default(),
-            home_clip_seq: Arc::new(AtomicU32::new(mousex_native::clipboard_seq())),
-            pull_seq: mousex_native::clipboard_seq(),
+            home_clip_seq: Arc::new(AtomicU32::new(platform::clipboard_seq())),
+            pull_seq: platform::clipboard_seq(),
             tx,
             editor_open: Arc::new(AtomicBool::new(false)),
             paused: false,
             last_input: Instant::now(),
             session_locked: false,
+            remote_moves: 0,
+            remote_keys: 0,
         }
     }
 
@@ -392,9 +416,14 @@ impl State {
                 self.rebuild_layout();
                 log("layout reloaded from the editor");
             }
+            #[cfg(target_os = "linux")]
+            Msg::LayoutChanged => {
+                self.rebuild_layout();
+                log("layout reloaded: the other computer changed sides");
+            }
             Msg::Identify => self.identify_screens(),
             Msg::Clipboard { from, clip } => match &self.remote {
-                None if mousex_native::clipboard_seq() != self.pull_seq => {
+                None if platform::clipboard_seq() != self.pull_seq => {
                     log("remote clipboard dropped: a newer copy was made on this computer");
                 }
                 None => {
@@ -402,7 +431,7 @@ impl State {
                     let seq = self.home_clip_seq.clone();
                     tokio::task::spawn_blocking(move || {
                         clipboard_write(&clip);
-                        seq.store(mousex_native::clipboard_seq(), Ordering::Relaxed);
+                        seq.store(platform::clipboard_seq(), Ordering::Relaxed);
                     });
                 }
                 Some(target) if *target != from => {
@@ -437,6 +466,9 @@ impl State {
                     self.apply(action);
                     return;
                 }
+                if down && self.remote.is_some() {
+                    self.remote_keys = self.remote_keys.saturating_add(1);
+                }
                 if let Some(client) = self.focused() {
                     match keymap::win_scancode_to_hid(scancode, extended) {
                         Some(hid) => client.send(Control::Key { hid, down }),
@@ -450,11 +482,18 @@ impl State {
             Event::Move { x, y } => {
                 if self.remote.is_none() {
                     let action = self.router.on_home_cursor(x, y);
+                    if matches!(action, Action::None) {
+                        log(&format!("barrier at {x},{y} stayed on this computer"));
+                    }
                     self.apply(action);
+                    if self.remote.is_none() {
+                        os::release_if_pending();
+                    }
                 }
             }
             Event::Delta { dx, dy } => {
                 if self.remote.is_some() && (dx, dy) != (0, 0) && plausible_delta(dx, dy) {
+                    self.remote_moves = self.remote_moves.saturating_add(1);
                     let action = self.router.on_delta(dx, dy);
                     self.apply(action);
                 }
@@ -494,10 +533,7 @@ impl State {
                     log("session locked after inactivity: other computers keep their own timeout");
                 }
             }
-            Event::Tray(TrayCommand::ShowLog) => {
-                let _ =
-                    std::process::Command::new("notepad.exe").arg(crate::config::data_dir().join("mousex.log")).spawn();
-            }
+            Event::Tray(TrayCommand::ShowLog) => os::open_log(),
             Event::DisplayChange => {
                 // Monitores da casa mudaram: bordas recalculadas com as coordenadas novas.
                 self.rebuild_layout();
@@ -563,14 +599,19 @@ impl State {
                 }
                 // Teclas seguradas em casa seriam soltas só no remoto: libera aqui antes de suprimir.
                 for &(scancode, extended) in &self.held {
-                    let _ = self.local.send(Event::Key { scancode, extended, down: false });
+                    os::release_key(scancode, extended);
                 }
                 // Supressão antes de estacionar: daqui em diante o cursor real só se move por SetCursorPos.
-                Hooks::set_suppress(true);
-                let park = mousex_native::park_cursor();
+                if !os::set_suppress(true) {
+                    log("pointer is not captured; cross a screen edge to control the other computer");
+                    let back = self.router.force_home();
+                    self.apply(back);
+                    return;
+                }
+                let park = os::park_cursor();
                 log(&format!("entered {machine} ({monitor_id} {local_x},{local_y}); cursor parked at {park:?}"));
                 self.enter(&machine, &monitor_id, local_x, local_y);
-                let seq = mousex_native::clipboard_seq();
+                let seq = platform::clipboard_seq();
                 if seq != self.home_clip_seq.load(Ordering::Relaxed)
                     && let Some(client) = self.clients.get(&machine)
                 {
@@ -601,12 +642,12 @@ impl State {
             }
             Action::ReturnHome { global_x, global_y } => {
                 if let Some(previous) = self.remote.take() {
-                    self.pull_seq = mousex_native::clipboard_seq();
+                    self.pull_seq = platform::clipboard_seq();
                     self.leave(&previous);
                     log(&format!("returned from {previous} to ({global_x},{global_y})"));
                 }
-                Hooks::set_suppress(false);
-                mousex_native::set_cursor(global_x, global_y);
+                os::set_suppress(false);
+                os::set_cursor(global_x, global_y);
             }
         }
     }
@@ -631,7 +672,7 @@ impl State {
     /// conectados, grava e atualiza o roteador. Única porta de entrada: nenhum caminho perde um cliente conectado.
     fn rebuild_layout(&mut self) {
         self.layout =
-            rebuild(&read_saved(&self.layout_path), &self.home, &local_monitors(), &self.connected_monitors());
+            rebuild(&read_saved(&self.layout_path), &self.home, &os::home_monitors(), &self.connected_monitors());
         if let Err(error) = save_layout(&self.layout_path, &self.layout) {
             log(&format!("failed to save layout: {error}"));
         }
@@ -641,11 +682,11 @@ impl State {
     /// Telas da casa movidas no editor: o Windows passa a usar a mesma arrumação, e o layout salvo é
     /// deslocado para bater com as coordenadas reais (a principal fica em 0,0).
     fn apply_home_arrangement(&self) {
-        let Some(plan) = home_arrangement(&read_saved(&self.layout_path), &self.home, &local_monitors()) else {
+        let Some(plan) = home_arrangement(&read_saved(&self.layout_path), &self.home, &os::home_monitors()) else {
             return;
         };
         if !plan.positions.is_empty() {
-            if let Err(error) = mousex_native::set_monitor_positions(&plan.positions) {
+            if let Err(error) = os::set_monitor_positions(&plan.positions) {
                 log(&format!("failed to rearrange this computer's screens: {error}"));
                 return;
             }
@@ -736,6 +777,8 @@ impl State {
 
     fn refresh_router(&mut self) {
         self.router.set_layout(connected_view(&self.layout, &self.home, &self.connected_monitors()));
+        // Layout completo, não só o das conectadas: a barreira de quem desconecta fica, e reconectar não mexe nela.
+        os::set_neighbors(&self.layout, &self.home);
         self.update_tray();
     }
 
@@ -755,11 +798,23 @@ impl State {
 
     /// Usuário ativo há pouco: esta máquina e as outras não bloqueiam a tela por inatividade.
     /// Quando ele sai, ninguém é mantido acordado e cada uma bloqueia no seu tempo normal.
-    fn keep_others_awake(&self) {
+    fn keep_others_awake(&mut self) {
+        if let Some(machine) = &self.remote {
+            // Rastro para o caso de o cursor "travar" no outro computador: mostra se a entrada ainda chegava.
+            log(&format!("on {machine}: {} moves and {} keys in the last 30 s", self.remote_moves, self.remote_keys));
+        }
+        (self.remote_moves, self.remote_keys) = (0, 0);
         if self.session_locked || self.last_input.elapsed() > ACTIVE_WINDOW {
             return;
         }
-        mousex_native::keep_awake();
+        // No Linux isto chama o X11 e o gdbus, que podem demorar: nunca no loop que roteia o mouse.
+        static AWAKE: AtomicBool = AtomicBool::new(false);
+        if !AWAKE.swap(true, Ordering::AcqRel) {
+            tokio::task::spawn_blocking(|| {
+                os::keep_awake();
+                AWAKE.store(false, Ordering::Release);
+            });
+        }
         for client in self.clients.values() {
             client.send(Control::Activity);
         }
@@ -773,7 +828,7 @@ impl State {
                 (name, connected)
             })
             .collect();
-        mousex_native::set_tray_status(TrayStatus {
+        os::set_tray_status(TrayStatus {
             machines,
             active: !self.clients.is_empty(),
             paused: self.paused,
@@ -783,15 +838,25 @@ impl State {
     }
 }
 
+fn button_to_u8(button: Button) -> u8 {
+    match button {
+        Button::Left => 0,
+        Button::Right => 1,
+        Button::Middle => 2,
+        Button::X1 => 3,
+        Button::X2 => 4,
+    }
+}
+
 /// Layout como está no disco; ausente ou ilegível vira vazio (a casa entra na reconstrução).
-fn read_saved(path: &Path) -> ScreenLayout {
+pub(crate) fn read_saved(path: &Path) -> ScreenLayout {
     std::fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<ScreenLayout>(&bytes).ok())
         .unwrap_or(ScreenLayout { monitores: Vec::new() })
 }
 
-fn save_layout(path: &Path, layout: &ScreenLayout) -> io::Result<()> {
+pub(crate) fn save_layout(path: &Path, layout: &ScreenLayout) -> io::Result<()> {
     let body = serde_json::to_vec_pretty(layout).map_err(io::Error::other)?;
     let temp = path.with_extension("json.tmp");
     std::fs::write(&temp, body)?;

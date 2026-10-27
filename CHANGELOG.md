@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Arrange screens…**: a **Connected screens only** button removes ghost screens (computers or monitors that are no longer connected). They could push newly connected screens away from yours, so the cursor stopped crossing between computers and only the hotkeys worked.
 - **Arrange screens…**: **Save** no longer closes the editor. The new layout applies at once, so you can test the cursor and keep adjusting.
 - Linux as a client computer: keyboard, mouse, media keys, clipboard (text, images, files and folders), screen lock and automatic updates, installed with the same `install.sh` as macOS. X11 sessions use XTest; Wayland sessions use the desktop's remote control permission (RemoteDesktop portal with libei, GNOME 46 or KDE Plasma 6.1 or newer), which is experimental.
+- Linux as the main computer, on Wayland: the agent places pointer barriers with the InputCapture portal on the screen edges that touch another computer, and while the cursor is on another computer it receives keys, motion, buttons and the wheel through libei. The other edges stay free, so a dock that hides at the bottom and the hot corners keep working; when the layout changes, the barriers move without asking for the permission again. Switch with `mousex install --role server`. Tested on GNOME 46 (Ubuntu 24.04), which asks to allow the capture every time MouseX starts. X11 sessions cannot be the main computer yet. Experimental.
+- `mousex monitor` opens a live status window in the browser (`127.0.0.1:41416`): state, role, service, pointer, last input and the recent log. It is available on every platform.
+- Linux main computer: `mousex side left|right [MACHINE]` puts the other computer on that side of your screens (new computers still start on the right), and `mousex arrange` opens a screen editor in the browser, with the same rules as **Arrange screens…** on Windows. The Linux screens keep the system's arrangement; you move the other computers' screens around them. The status window has the same side buttons and a link to the editor. Changes apply right away, without restarting the agent.
+- Linux: an optional tray icon with the same menu as Windows, built with `--features tray` (needs the libdbus headers).
+
+### Fixed
+
+- A screen taller than the one beside it no longer has a wall along the rest of its edge. Leaving it anywhere on that edge goes to the nearest point the two screens share, so the cursor cannot get stuck on the other computer.
 
 ## [1.1.3] - 2026-10-22
 

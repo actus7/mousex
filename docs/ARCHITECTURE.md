@@ -9,7 +9,7 @@ flowchart TB
     core["mousex-core (src/)<br/>protocol, QUIC, pairing, discovery,<br/>layout, router, keymap"]
     native["mousex-native (native/)<br/>Windows: hooks, injection, clipboard,<br/>tray, power, access checks"]
     macos["mousex-platform-macos (platform-macos/)<br/>macOS: CGEvent, displays,<br/>pasteboard, accessibility"]
-    linux["mousex-platform-linux (platform-linux/)<br/>Linux: XTest or portal + libei,<br/>RandR, X11 clipboard, dialogs"]
+    linux["mousex-platform-linux (platform-linux/)<br/>Linux: XTest or portal + libei,<br/>InputCapture, RandR, X11 clipboard, dialogs"]
     daemon["mousex (daemon/)<br/>binaries: mousex (CLI), mousex-agent<br/>client, server, installers"]
     app["mousex-app (app/src-tauri/)<br/>Arrange screens editor<br/>(separate Cargo workspace)"]
 
@@ -27,8 +27,8 @@ flowchart TB
 | `mousex-core` | `src/` | Platform-independent logic: the wire protocol (`proto.rs`), QUIC endpoints and certificate handling (`net.rs`), device identity (`identity.rs`), pairing codes and the allowlist (`pairing.rs`), discovery (`discovery.rs`), screen layout and edge routing (`router.rs`), and key maps between Windows, HID, macOS and Linux evdev (`keymap.rs`). |
 | `mousex-native` | `native/` | Windows backend. Low-level keyboard and mouse hooks that never block, input injection, clipboard (text, DIB and PNG images, file lists), the tray icon and menu, power and session events, access checks, and helpers for the installer. |
 | `mousex-platform-macos` | `platform-macos/` | macOS backend. Event injection with CoreGraphics, display detection, pasteboard access (text, PNG, TIFF), accessibility checks, and the keyboard-layout check. |
-| `mousex-platform-linux` | `platform-linux/` | Linux backend. Input injection with XTest on X11, or with the RemoteDesktop portal and libei on Wayland, display detection with RandR, the X11 clipboard (text, PNG, file lists) with XFixes change notifications, and the pairing dialog, lock and keep-awake through `zenity`/`kdialog`, `loginctl` and D-Bus. |
-| `mousex` | `daemon/` | The product itself. The `mousex` CLI, the `mousex-agent` background process, the client and server state machines, clipboard and file transfer (`clip.rs`), the Windows installer (`install.rs`), and the macOS and Linux installers (`mac_install.rs`, `linux_install.rs`, sharing `client_install.rs`). |
+| `mousex-platform-linux` | `platform-linux/` | Linux backend. Input injection with XTest on X11, or with the RemoteDesktop portal and libei on Wayland, input capture for the main computer with the InputCapture portal and libei as receiver (`capture.rs`), display detection with RandR, the X11 clipboard (text, PNG, file lists) with XFixes change notifications, and the pairing dialog, lock and keep-awake through `zenity`/`kdialog`, `loginctl` and D-Bus. |
+| `mousex` | `daemon/` | The product itself. The `mousex` CLI, the `mousex-agent` background process, the client and server state machines, clipboard and file transfer (`clip.rs`), the Windows installer (`install.rs`), the macOS and Linux installers (`mac_install.rs`, `linux_install.rs`, sharing `client_install.rs`), the status window (`monitor.rs`), and on a Linux main computer the side command and the screen editor (`side.rs`, `arrange.rs`). |
 | `mousex-app` | `app/src-tauri/` | The **Arrange screens** editor: a Tauri window with a React front end (`app/src/`). It only runs while open. It is a separate Cargo workspace. |
 
 Platform-specific code is isolated behind traits. The daemon has a `Platform` trait for the client side (keys, buttons, motion, clipboard, lock, keep-awake, monitors), and the server has its own event loop that consumes hook events.
@@ -86,11 +86,13 @@ flowchart LR
 - **Autostart entry.** Desktops run `~/.config/autostart/mousex.desktop` at login (GNOME, KDE, XFCE, Cinnamon and others). It passes `DISPLAY` and `WAYLAND_DISPLAY` to the systemd user manager and starts `mousex.service`, which restarts the agent if it exits. No administrator rights.
 - **X11.** Keys, motion, buttons and the wheel go through XTest; screens come from RandR.
 - **Wayland.** XTest would reach only XWayland windows, so the agent opens a RemoteDesktop portal session and talks libei (`ConnectToEIS`, portal version 2: GNOME 46, KDE Plasma 6.1 or newer). The desktop asks the user once; the restore token is kept in `portal-token` so later sessions start without asking. If the session ends (permission revoked, compositor restarted), the agent exits and systemd starts a fresh one. Without the portal, the agent falls back to XTest and logs why. Screens and the clipboard still come from XWayland, which mirrors the compositor's.
-- The Linux build is **client only**, like macOS.
+- **Main computer (Wayland).** The agent opens an InputCapture portal session and places pointer barriers only on the screen edges that touch another computer's screen in the saved layout. The other edges stay the desktop's, so a dock that hides at the bottom, hot corners and the top bar keep working. A barrier on the right or bottom edge sits one pixel past the last column or row, as the portal specification places them. GNOME 46 takes no new barriers while the session is enabled: when the layout changes, the agent disables the session, sets the new barriers and enables it again (if the cursor is on another computer, once it comes back). It is the same session, so the desktop does not ask again. When the cursor enters another computer, the agent keeps the capture and reads keys, motion, buttons and the wheel from libei (receiver context); keys arrive as evdev codes and become Windows scan codes. On the way back, the pointer is released 20 px inside the edge, so a small hand movement does not send it straight back. GNOME 46 has no restore token for InputCapture: it asks to allow the capture at every agent start. X11 sessions cannot be the main computer yet.
+- **Status window.** The agent serves `127.0.0.1:41416` (`mousex monitor`). It reads the config, the service state, `activity.json` and the log. On a Linux main computer it also changes the layout, because the Tauri editor does not run there: `POST /api/side` (also used by `mousex side`) and the screen editor at `/arrange` with `GET` and `POST /api/layout`. Those requests are accepted only with `Host` 127.0.0.1 or localhost, and only from these pages or without an `Origin` (not from another site open in the browser). The agent rereads the layout in place, without a restart, since a restart means allowing the capture again.
+- **Tray.** The default Linux build has no tray icon (the build machine needs the libdbus headers). `--features tray` builds one with the same menu as Windows.
 
 ## Roles and state machines
 
-- **Server** (Windows only): owns the physical keyboard and mouse. It accepts paired clients, tracks which machine the cursor is on, and sends `Enter`, `Leave`, keys, clicks, wheel events, and clipboard requests.
+- **Server** (Windows, or Linux on Wayland): owns the physical keyboard and mouse. It accepts paired clients, tracks which machine the cursor is on, and sends `Enter`, `Leave`, keys, clicks, wheel events, and clipboard requests.
 - **Client** (Windows, macOS or Linux): connects to the server, announces its name and monitors with `Hello`, and applies what the server sends. It reconnects with backoff starting at 250 ms and capped at 2 s. A connection that stayed up for at least 5 s resets the backoff. When the link drops, it releases every held key and button.
 
 ## Wire protocol
@@ -178,7 +180,7 @@ The layout is a list of monitors in **global desk coordinates**:
 - `x`, `y`, `width`, and `height` are integer global pixels. Bounds are half-open.
 - `scale_fator` converts global pixels to a machine's logical coordinates: `local = (global - origin) / scale`.
 - Monitor IDs must be unique and not empty. The `machine` name must not be empty. An empty layout is valid.
-- **Home screens** (the screens of the computer with the physical keyboard) always use the real Windows coordinates. When the editor moves them, the server applies the new arrangement to Windows (`ChangeDisplaySettingsEx`, primary kept at 0,0) and shifts the whole saved layout to match, so the two never disagree. Home screens must touch each other, because Windows does not allow detached screens.
+- **Home screens** (the screens of the computer with the physical keyboard) always use the real Windows coordinates. When the editor moves them, the server applies the new arrangement to Windows (`ChangeDisplaySettingsEx`, primary kept at 0,0) and shifts the whole saved layout to match, so the two never disagree. Home screens must touch each other, because Windows does not allow detached screens. On a Linux main computer the desktop owns the home screens: the editor keeps them fixed, and saving changes only the other machines' screens (screens that are not in the saved layout are ignored).
 - Other machines' screens can be placed anywhere. The **size on desk** slider changes the area a screen occupies without changing its resolution.
 
 ### Router
@@ -186,7 +188,7 @@ The layout is a list of monitors in **global desk coordinates**:
 The router turns cursor movement into machine changes:
 
 1. **Home movement** comes from the hook. The router clamps the cursor to the desk bounds and checks whether it crossed the edge of a monitor.
-2. **Edge detection** looks for a neighbor monitor on the other side of the edge. A transition only happens when the monitors are physically adjacent. There is no wrap-around.
+2. **Edge detection** looks for a neighbor monitor on the other side of the edge. A transition only happens when the monitors are physically adjacent. There is no wrap-around. When the edge touches a neighbor along only part of its length (screens of different heights), leaving through the rest of the edge goes to the nearest point of the shared part, so it is never a wall; corners that touch at a single point still do not connect.
 3. **Remote movement** comes from relative deltas. The router moves a virtual point on the desk, clamps it to the current monitor, and when it leaves the monitor through an edge, it finds the monitor on that side.
 4. The router sends `Enter` to the new machine (or `Leave` back to home), at the matching local position.
 5. **Jumps** (`Ctrl+Alt+Shift+N`, or the tray) move the cursor to the first monitor of machine *N*, counting left to right. **Force home** (the emergency hotkey) brings the cursor back to the home screen.

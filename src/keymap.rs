@@ -337,6 +337,21 @@ pub fn hid_to_evdev(hid: u16) -> Option<u16> {
     (code != 0).then_some(code)
 }
 
+/// evdev (KEY_*) → HID. Inverse of `hid_to_evdev` for keys the Linux server captures.
+pub fn evdev_to_hid(code: u16) -> Option<u16> {
+    const MODIFIERS: [u16; 8] = [29, 42, 56, 125, 97, 54, 100, 126];
+    if let Some(index) = MODIFIERS.iter().position(|modifier| *modifier == code) {
+        return Some(0xE0 + index as u16);
+    }
+    match code {
+        164 => Some(MEDIA_PLAY_PAUSE),
+        163 => Some(MEDIA_NEXT),
+        165 => Some(MEDIA_PREVIOUS),
+        166 => Some(MEDIA_STOP),
+        _ => EVDEV_TABLE.iter().position(|&entry| entry != 0 && u16::from(entry) == code).map(|hid| hid as u16),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +436,19 @@ mod tests {
                 continue;
             }
             assert!(hid_to_mac(hid).or(hid_to_mac_media(hid).map(|_| 0)).is_some(), "hid {hid:#x} sem destino no Mac");
+        }
+    }
+
+    #[test]
+    fn evdev_do_linux_volta_para_o_hid() {
+        assert_eq!(evdev_to_hid(30), Some(0x04), "KEY_A");
+        assert_eq!(evdev_to_hid(29), Some(0xE0), "Ctrl esquerdo");
+        assert_eq!(evdev_to_hid(164), Some(MEDIA_PLAY_PAUSE));
+        for hid in 0x04..0x94 {
+            if let Some(code) = hid_to_evdev(hid) {
+                let back = evdev_to_hid(code);
+                assert!(back.is_some(), "evdev {code} do hid {hid:#x} não volta");
+            }
         }
     }
 

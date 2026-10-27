@@ -74,6 +74,7 @@ pub type Native = LinuxPlatform;
 
 impl Platform for LinuxPlatform {
     fn key(&mut self, hid: u16, down: bool) {
+        crate::activity::input(if down { "key:down" } else { "key:up" });
         if let (Some(injector), Some(code)) = (self.injector.as_mut(), keymap::hid_to_evdev(hid)) {
             let result = injector.key(code, down);
             self.check(result);
@@ -81,6 +82,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn move_to(&mut self, monitor: usize, x: i32, y: i32) {
+        crate::activity::pointer(&format!("{monitor}:{x}:{y}"));
         if let (Some(injector), Some(&(ox, oy))) = (self.injector.as_mut(), self.origins.get(monitor)) {
             let result = injector.move_to(ox + x, oy + y);
             self.check(result);
@@ -88,6 +90,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn button(&mut self, button: u8, down: bool) {
+        crate::activity::input(&format!("button:{button}:{}", if down { "down" } else { "up" }));
         if let Some(injector) = self.injector.as_mut() {
             let result = injector.button(button, down);
             self.check(result);
@@ -95,6 +98,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn wheel(&mut self, dx: i32, dy: i32) {
+        crate::activity::input("wheel");
         if let Some(injector) = self.injector.as_mut() {
             let result = injector.scroll(dx, dy);
             self.check(result);
@@ -102,6 +106,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn release_all(&mut self) {
+        crate::activity::input("release");
         if let Some(injector) = self.injector.as_mut() {
             injector.release_all();
         }
@@ -154,13 +159,18 @@ impl Platform for LinuxPlatform {
     }
 
     fn identify(&mut self, screens: &[(String, u32)]) {
-        let found: Vec<(linux::Rect, u32)> = numbered(&local_monitors(), screens)
-            .into_iter()
-            .map(|(m, number)| (linux::Rect { x: m.x, y: m.y, width: m.width, height: m.height }, number))
-            .collect();
-        if let Err(error) = linux::show_identify(&found) {
-            crate::log(&format!("screen identification unavailable: {error}"));
-        }
+        show_identify(screens);
+    }
+}
+
+/// "Identificar telas": número em cada monitor deste computador (ids nativos da mensagem).
+pub fn show_identify(screens: &[(String, u32)]) {
+    let found: Vec<(linux::Rect, u32)> = numbered(&local_monitors(), screens)
+        .into_iter()
+        .map(|(m, number)| (linux::Rect { x: m.x, y: m.y, width: m.width, height: m.height }, number))
+        .collect();
+    if let Err(error) = linux::show_identify(&found) {
+        crate::log(&format!("screen identification unavailable: {error}"));
     }
 }
 
@@ -177,6 +187,41 @@ pub fn ensure_inbox(inbox: &std::path::Path, _check_owner: bool) -> std::io::Res
 // ponytail: sem checagem de espaço (só o limite de 2 GB), como no Mac; statvfs se um disco encher.
 pub fn free_space(_path: &std::path::Path) -> Option<u64> {
     None
+}
+
+fn shared_clipboard() -> Option<&'static linux::Clipboard> {
+    static CLIP: std::sync::OnceLock<Option<linux::Clipboard>> = std::sync::OnceLock::new();
+    CLIP.get_or_init(|| {
+        linux::Clipboard::new().inspect_err(|error| crate::log(&format!("clipboard unavailable: {error}"))).ok()
+    })
+    .as_ref()
+}
+
+pub fn clipboard_seq() -> u32 {
+    linux::clipboard_seq()
+}
+
+pub fn clipboard_read() -> Option<crate::clip::Clip> {
+    match shared_clipboard()?.read()? {
+        linux::Clip::Text(text) => {
+            (text.len() <= mousex_core::MAX_CLIPBOARD_TEXT_BYTES).then_some(crate::clip::Clip::Text(text))
+        }
+        linux::Clip::Png(png) => {
+            (png.len() <= crate::clip::MAX_CLIPBOARD_IMAGE_BYTES).then_some(crate::clip::Clip::Png(png))
+        }
+        linux::Clip::Files(paths) => Some(crate::clip::Clip::Files(paths)),
+    }
+}
+
+pub fn clipboard_write(clip: &crate::clip::Clip) {
+    let native = match clip {
+        crate::clip::Clip::Text(text) => linux::Clip::Text(text.clone()),
+        crate::clip::Clip::Png(png) => linux::Clip::Png(png.clone()),
+        crate::clip::Clip::Files(paths) => linux::Clip::Files(paths.clone()),
+    };
+    if let Some(Err(error)) = shared_clipboard().map(|clipboard| clipboard.write(&native)) {
+        crate::log(&format!("clipboard write failed: {error}"));
+    }
 }
 
 pub fn ask_yes_no(title: &str, text: &str) -> bool {

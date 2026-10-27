@@ -1,8 +1,13 @@
+mod capture;
 mod clipboard;
 mod desktop;
 mod eis;
 mod identify;
 mod x11;
+
+pub use capture::{
+    Area, Captured, ServerCapture, Zone, release_at, release_pending, set_holding, set_neighbors, start_server_capture,
+};
 
 pub use clipboard::{Clip, Clipboard, clipboard_seq};
 pub use desktop::{ask_yes_no, keep_awake, lock_screen, notify};

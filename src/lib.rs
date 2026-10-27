@@ -124,7 +124,9 @@ pub struct Transition {
     pub local: Point,
 }
 
-/// Cursor deve estar exatamente na borda de saída. Cantos sem segmento compartilhado não conectam.
+/// Cursor deve estar exatamente na borda de saída de um monitor. Se essa borda encosta noutro só num trecho
+/// (telas de alturas diferentes), sair fora do trecho leva ao ponto mais próximo dele: o resto da borda não
+/// vira parede, onde o cursor ficaria preso no outro computador. Cantos sem segmento compartilhado não conectam.
 pub fn edge_router(
     layout: &ScreenLayout,
     cursor: Point,
@@ -134,38 +136,59 @@ pub fn edge_router(
     if !cursor.x.is_finite() || !cursor.y.is_finite() {
         return Ok(None);
     }
+    let mut best: Option<(f64, &Monitor, Point)> = None;
     for source in &layout.monitores {
         let a = source.bounds();
+        let on_edge = match direction {
+            Direction::Right => cursor.x == a.right && cursor.y >= a.top && cursor.y < a.bottom,
+            Direction::Left => cursor.x == a.left && cursor.y >= a.top && cursor.y < a.bottom,
+            Direction::Down => cursor.y == a.bottom && cursor.x >= a.left && cursor.x < a.right,
+            Direction::Up => cursor.y == a.top && cursor.x >= a.left && cursor.x < a.right,
+        };
+        if !on_edge {
+            continue;
+        }
         for target in &layout.monitores {
             if source.id == target.id {
                 continue;
             }
             let b = target.bounds();
-            let vertical = cursor.y >= a.top.max(b.top) && cursor.y < a.bottom.min(b.bottom);
-            let horizontal = cursor.x >= a.left.max(b.left) && cursor.x < a.right.min(b.right);
-            let adjacent = match direction {
-                Direction::Right => cursor.x == a.right && a.right == b.left && vertical,
-                Direction::Left => cursor.x == a.left && a.left == b.right && vertical,
-                Direction::Down => cursor.y == a.bottom && a.bottom == b.top && horizontal,
-                Direction::Up => cursor.y == a.top && a.top == b.bottom && horizontal,
+            let (touching, lo, hi, along) = match direction {
+                Direction::Right => (a.right == b.left, a.top.max(b.top), a.bottom.min(b.bottom), cursor.y),
+                Direction::Left => (a.left == b.right, a.top.max(b.top), a.bottom.min(b.bottom), cursor.y),
+                Direction::Down => (a.bottom == b.top, a.left.max(b.left), a.right.min(b.right), cursor.x),
+                Direction::Up => (a.top == b.bottom, a.left.max(b.left), a.right.min(b.right), cursor.x),
             };
-            if adjacent {
-                // ponytail: entrada usa um pixel global para manter bounds semiabertos; subpixel fica para captura nativa.
-                let global = match direction {
-                    Direction::Left => Point { x: b.right - 1.0, ..cursor },
-                    Direction::Up => Point { y: b.bottom - 1.0, ..cursor },
-                    _ => cursor,
-                };
-                return Ok(Some(Transition {
-                    monitor_id: target.id.clone(),
-                    machine: target.machine.clone(),
-                    global,
-                    local: target.global_to_local(global),
-                }));
+            if !touching || lo >= hi {
+                continue;
             }
+            let at = if along >= lo && along < hi { along } else { along.clamp(lo, hi - 1.0) };
+            let distance = (along - at).abs();
+            if best.as_ref().is_some_and(|(nearest, _, _)| *nearest <= distance) {
+                continue;
+            }
+            let point = match direction {
+                Direction::Right | Direction::Left => Point { y: at, ..cursor },
+                Direction::Down | Direction::Up => Point { x: at, ..cursor },
+            };
+            best = Some((distance, target, point));
         }
     }
-    Ok(None)
+    Ok(best.map(|(_, target, point)| {
+        let b = target.bounds();
+        // ponytail: entrada usa um pixel global para manter bounds semiabertos; subpixel fica para captura nativa.
+        let global = match direction {
+            Direction::Left => Point { x: b.right - 1.0, ..point },
+            Direction::Up => Point { y: b.bottom - 1.0, ..point },
+            _ => point,
+        };
+        Transition {
+            monitor_id: target.id.clone(),
+            machine: target.machine.clone(),
+            global,
+            local: target.global_to_local(global),
+        }
+    }))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -370,6 +393,27 @@ mod tests {
         l.monitores[1].x = 0;
         l.monitores[1].y = 50;
         assert!(edge_router(&l, Point { x: 0.0, y: 50.0 }, Direction::Right).expect("layout").is_none());
+    }
+    #[test]
+    fn borda_maior_que_a_vizinha_leva_ao_trecho_mais_proximo() {
+        // Mac de 1329 de altura à direita de uma tela de 1080: a parte de baixo da borda não é parede.
+        let tela = |id: &str, machine: &str, x: i32, y: i32, width: i32, height: i32| Monitor {
+            id: id.into(),
+            machine: machine.into(),
+            x,
+            y,
+            width,
+            height,
+            scale_fator: 1.0,
+        };
+        let l = ScreenLayout {
+            monitores: vec![tela("casa", "pc", 0, 120, 1920, 1080), tela("mac", "mac", 1920, 120, 2056, 1329)],
+        };
+        let t = edge_router(&l, Point { x: 1920.0, y: 1400.0 }, Direction::Left).expect("layout").expect("volta");
+        assert_eq!((t.machine.as_str(), t.global), ("pc", Point { x: 1919.0, y: 1199.0 }));
+        let t = edge_router(&l, Point { x: 1920.0, y: 500.0 }, Direction::Left).expect("layout").expect("volta");
+        assert_eq!(t.global, Point { x: 1919.0, y: 500.0 });
+        assert!(edge_router(&l, Point { x: 3976.0, y: 1400.0 }, Direction::Right).expect("layout").is_none());
     }
     #[test]
     fn vertical_routing() {

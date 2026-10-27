@@ -2,8 +2,8 @@
 //! (religa o agente se cair) e um atalho de início automático da sessão gráfica, que leva DISPLAY e
 //! WAYLAND_DISPLAY ao systemd e sobe o serviço. O atalho funciona em GNOME, KDE, XFCE, Cinnamon…
 use crate::{
-    client_install::{AGENT, copy_binaries, machine_from_args, print_status, save_config},
-    config::data_dir,
+    client_install::{AGENT, copy_binaries, print_status, save_role},
+    config::{Role, data_dir},
 };
 use std::{error::Error, path::Path, path::PathBuf, process::Command};
 
@@ -67,13 +67,13 @@ fn hostname() -> String {
         .unwrap_or_else(|| "linux".into())
 }
 
-/// Cliente no Linux: `--role client [--machine NOME]`.
+/// Linux: `--role server|client [--machine NOME]`. O servidor é o computador do teclado e do mouse.
 pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
-    let machine = machine_from_args(args, hostname(), "Linux")?;
+    let (role, machine) = parse_args(args, hostname())?;
     systemctl(&["show-environment"]).map_err(|e| format!("MouseX needs systemd's user session: {e}"))?;
     let bin = data_dir().join("bin");
     copy_binaries(&bin)?;
-    save_config(&machine)?;
+    save_role(role, &machine)?;
 
     let units = config_home()?.join("systemd/user");
     std::fs::create_dir_all(&units)?;
@@ -90,10 +90,35 @@ pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
         systemctl(&import)?;
         systemctl(&["restart", SERVICE])?;
     }
-    println!("MouseX installed as client ({machine}) in {}.", bin.display());
+    let role_name = if role == Role::Server { "server" } else { "client" };
+    println!("MouseX installed as {role_name} ({machine}) in {}.", bin.display());
     println!("Starts automatically at every login. Log: {}", data_dir().join("mousex.log").display());
-    println!("On Wayland the system asks once to allow remote control: choose to remember the choice.");
+    if role == Role::Server {
+        println!("The desktop asks to allow capturing the keyboard and mouse: allow it.");
+        println!("GNOME 46 asks again every time MouseX starts (login, update).");
+        println!("Other computers install as client on the same network and pair with this one.");
+        println!("They start on the right: mousex side left moves them, mousex arrange opens the screen editor.");
+    } else {
+        println!("On Wayland the system asks once to allow remote control: choose to remember the choice.");
+    }
+    println!("Watch it live: mousex monitor");
     Ok(())
+}
+
+/// `--role server|client [--machine NOME]`.
+fn parse_args(args: &[String], default: String) -> Result<(Role, String), Box<dyn Error>> {
+    let mut role = None;
+    let mut machine = default;
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next().map(String::as_str)) {
+            ("--role", Some("server")) => role = Some(Role::Server),
+            ("--role", Some("client")) => role = Some(Role::Client),
+            ("--machine", Some(name)) if !name.trim().is_empty() => machine = name.trim().into(),
+            _ => return Err("usage: mousex install --role server|client [--machine NAME]".into()),
+        }
+    }
+    Ok((role.ok_or("missing --role server or --role client")?, machine))
 }
 
 pub fn uninstall() -> Result<(), Box<dyn Error>> {
@@ -128,6 +153,18 @@ mod tests {
     fn caracteres_especiais_do_systemd_no_caminho_sao_escapados() {
         let unit = service_unit(Path::new("/home/a%b$c\"d/mousex-agent"));
         assert!(unit.contains(r#"ExecStart="/home/a%%b$$c\"d/mousex-agent" run"#), "{unit}");
+    }
+
+    #[test]
+    fn instalacao_aceita_servidor_e_cliente() {
+        let (role, machine) =
+            parse_args(&["--role".into(), "server".into(), "--machine".into(), " sala ".into()], "pc".into()).unwrap();
+        assert_eq!(role, Role::Server);
+        assert_eq!(machine, "sala");
+        let (role, machine) = parse_args(&["--role".into(), "client".into()], "pc".into()).unwrap();
+        assert_eq!(role, Role::Client);
+        assert_eq!(machine, "pc");
+        assert!(parse_args(&["--role".into(), "foo".into()], "pc".into()).is_err());
     }
 
     #[test]

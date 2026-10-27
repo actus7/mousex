@@ -31,7 +31,7 @@ MouseX treats your computers as one wide desk. Move the cursor past the edge of 
 ## Highlights
 
 - 🖱️ **Cursor crosses screen edges** between Windows, Mac and Linux, monitor by monitor.
-- 🧭 **Arrange screens…** opens a visual editor. Drag screens to match your real desk.
+- 🧭 **Arrange screens…** opens a visual editor. Drag screens to match your real desk. On a Linux main computer it opens in the browser (`mousex arrange`).
 - 📋 **Clipboard sync** for text, images, and **files and folders**. Copy in Explorer, paste in Finder or in your Linux file manager, and the other way around. Files up to 2 GB.
 - 🔐 **Paired and encrypted.** Each device has its own key. Pairing shows the same 6-digit code on both machines, and you confirm it on both.
 - 🔎 **No IP addresses.** Computers find each other on the local network.
@@ -84,7 +84,23 @@ curl -fsSL https://github.com/actus7/mousex/releases/latest/download/install.sh 
 
 On an **X11** session MouseX works directly. On **Wayland** it uses the desktop's remote control permission (the RemoteDesktop portal with libei), which needs GNOME 46, KDE Plasma 6.1 or newer. Wayland support is **experimental**: please [report](https://github.com/actus7/mousex/issues) how it works on your desktop. If it does not work, log in with the "Xorg" or "X11" session.
 
-> **Install the main Windows PC first**, then the others. Each new machine asks for pairing once. After that, it is remembered.
+### Linux as the main computer
+
+A Linux computer can also be the **main computer**, the one whose keyboard and mouse you use. It needs a **Wayland** session with the InputCapture portal. It was tested on GNOME 46 (Ubuntu 24.04); KDE Plasma 6.1 or newer should work but is not tested yet. An X11 session cannot be the main computer yet.
+
+1. Install with the command above, then switch this computer to the main role:
+
+   ```bash
+   ~/.local/share/mousex/bin/mousex install --role server
+   ```
+
+2. The desktop asks to allow capturing the keyboard and mouse. Allow it. GNOME 46 asks again every time MouseX starts (login, update).
+3. Install the other computers as usual and confirm the pairing code on both screens.
+4. A new computer starts on the **right** of your screens. To put it on the left, run `~/.local/share/mousex/bin/mousex side left` (and `side right` to go back). To place the screens freely, open the screen editor with `~/.local/share/mousex/bin/mousex arrange`. Both apply right away.
+
+The default Linux build has no tray icon. Instead, `mousex monitor` opens a status window in the browser: state, pointer, last input, the log, the side of the other computer and a link to **Arrange screens…**. Your Linux screens keep the arrangement from the system settings; in the editor you move the other computers' screens around them.
+
+> **Install the main computer first** (Windows or Linux), then the others. Each new machine asks for pairing once. After that, it is remembered.
 
 ### Updating and uninstalling
 
@@ -99,7 +115,7 @@ On an **X11** session MouseX works directly. On **Wayland** it uses the desktop'
 |---|---|
 | **Windows** | Windows 10 or 11, x64 |
 | **macOS** | macOS 12 or newer, Apple Silicon or Intel |
-| **Linux** | x86_64 with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 or newer), systemd, `zenity` or `kdialog` for the pairing prompt. Wayland: GNOME 46 or KDE Plasma 6.1 or newer |
+| **Linux** | x86_64 with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 or newer), systemd, `zenity` or `kdialog` for the pairing prompt. Wayland: GNOME 46 or KDE Plasma 6.1 or newer. As the main computer: Wayland only, with the InputCapture portal |
 | **Network** | All computers on the same local network, with no client isolation on Wi-Fi |
 | **Firewall** | UDP ports **41414** (connection) and **41415** (discovery) |
 
@@ -135,9 +151,11 @@ The tray menu numbers your computers left to right, like the hotkeys:
 
 The tray menu offers the same actions: **Pause sharing**, **Lock cursor to screen**, **Reconnect**, **Arrange screens…**, and **Open log**.
 
+On a Linux main computer the hotkeys work while you control another computer (so <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>Home</kbd> always brings the cursor back). While the cursor is home, the desktop does not hand the keys to MouseX: cross a screen edge instead.
+
 ## How it works
 
-Your Windows PC with the physical keyboard and mouse is the **server**. Other Windows PCs, Macs and Linux computers are **clients**. Macs and Linux computers can only be clients for now.
+The computer with the physical keyboard and mouse is the **server**: a Windows PC or, on Wayland, a Linux computer. The other Windows PCs, Macs and Linux computers are **clients**. Macs can only be clients for now.
 
 ```mermaid
 flowchart LR
@@ -145,8 +163,8 @@ flowchart LR
         K[Keyboard and mouse]
     end
 
-    subgraph Server["Main Windows PC (server)"]
-        H[Input hooks]
+    subgraph Server["Main computer: Windows or Linux (server)"]
+        H[Input hooks or InputCapture]
         R[Router and screen layout]
         H --> R
     end
@@ -184,7 +202,7 @@ MouseX is built for one job: a personal desk with a few Windows, Mac and Linux m
 | Open source | ✅ | Deskflow ✅ · Synergy ❌ | ✅ | ❌ | ✅ |
 | Windows | ✅ | ✅ | ✅ | ✅ | ✅ |
 | macOS | ✅ (client only) | ✅ | ✅ | – | ✅ |
-| Linux | ✅ (client only; Wayland experimental) | ✅ | ✅ | ❌ | ✅ |
+| Linux | ✅ (main computer on Wayland; Wayland experimental) | ✅ | ✅ | ❌ | ✅ |
 | Mac as the main machine | ❌ not yet | ✅ | ✅ | – | – |
 | Setup without typing IP addresses | ✅ | – | – | – | – |
 | Clipboard files and folders | ✅ | – | – | – | – |
@@ -193,7 +211,7 @@ MouseX is built for one job: a personal desk with a few Windows, Mac and Linux m
 
 Cells marked **–** are not claims either way. Check each project's documentation for details.
 
-**Limitations today:** a Mac or a Linux computer can only be a client, Wayland support is experimental, and you cannot drag and drop files between machines (copy and paste works). These are on the [roadmap](#roadmap).
+**Limitations today:** a Mac can only be a client, a Linux main computer needs a Wayland session (not X11), Wayland support is experimental, and you cannot drag and drop files between machines (copy and paste works). These are on the [roadmap](#roadmap).
 
 ## Security
 
@@ -210,7 +228,7 @@ The details, the threat model, and how to report a vulnerability are in [SECURIT
 - Confirm both computers are on the same local network.
 - On Wi-Fi, turn off client isolation (sometimes called "AP isolation" or "guest network isolation") on the router.
 - Confirm UDP 41414 and 41415 are allowed. The installer opens them for the local subnet only.
-- Open **Open log** from the tray menu, or run `mousex status`.
+- Open **Open log** from the tray menu, or run `mousex status`. `mousex monitor` shows the same live in the browser.
 
 **Windows firewall is blocking MouseX.**
 Run the installer again from an elevated PowerShell. It recreates the firewall rule named `MouseX`.
@@ -228,7 +246,10 @@ Run `~/.local/share/mousex/bin/mousex status` and read the last lines of the log
 Brazilian ABNT2 keyboards work best with a Mac set to the **Brazilian – ABNT2** layout. MouseX shows a one-time hint if the Mac uses a different layout. Ctrl on Windows becomes Cmd on the Mac, so shortcuts like Ctrl+C work as Cmd+C.
 
 **Monitors changed and the layout looks wrong.**
-MouseX detects monitor changes live. Open **Arrange screens…** from the tray to adjust the layout. You can drag the main computer's screens too: on save, Windows is rearranged to match, so there is no need to repeat the arrangement in Windows Settings.
+MouseX detects monitor changes live. Open **Arrange screens…** from the tray to adjust the layout. You can drag the main computer's screens too: on save, Windows is rearranged to match, so there is no need to repeat the arrangement in Windows Settings. On a Linux main computer, run `mousex arrange` (or use **Arrange screens…** in `mousex monitor`); there the Linux screens follow the system settings and you move the other computers' screens around them.
+
+**Linux main computer: the cursor does not cross to the other computer.**
+Open `mousex monitor`. The log says how many screen edges capture the cursor ("pointer barriers on 1 screen edge(s)"): only edges that touch another computer do, so the others stay free for the desktop (a dock that hides at the bottom, hot corners). A new computer starts on the right: if it sits on your left, run `mousex side left` or move it in `mousex arrange`. Screens only connect where their edges touch. Also check that you allowed capturing the keyboard and mouse when MouseX started.
 
 **Where are the logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`
@@ -251,7 +272,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain, the commands, and the 
 ## Roadmap
 
 - Wayland support confirmed on more desktops
-- A Mac or a Linux computer as the main (server) computer
+- A Mac as the main (server) computer, and Linux on X11
 - Drag and drop of files between machines
 - Better keyboard layout support on Mac
 

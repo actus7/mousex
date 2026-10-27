@@ -55,6 +55,8 @@ Contributions are welcome in **English or Portuguese**. Please follow the [Code 
 
 1. Install Rust stable with [rustup](https://rustup.rs/). No system libraries are needed: the X11, D-Bus and libei clients are pure Rust.
 2. For the X11 tests, install Xvfb (`sudo apt install xvfb` on Debian and Ubuntu) and run the tests under `xvfb-run -a`. Without a `DISPLAY` those tests return early.
+3. The Linux tray icon is optional: `cargo build -p mousex --features tray` needs the libdbus headers (`sudo apt install libdbus-1-dev pkg-config`). The default build has no icon; `mousex monitor` is the status window.
+4. To try a Linux main computer without risking your session, create the marker `~/.local/share/mousex/stop-after-5m` before you start the agent. That one run stops by itself after 5 minutes, so a capture that goes wrong cannot keep the keyboard and mouse away for long. Each start asks GNOME to allow the capture again.
 
 The Windows native backend (`mousex-native`) does not build on macOS or Linux, so the workspace commands below use `--exclude mousex-native` there.
 

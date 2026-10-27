@@ -4,6 +4,8 @@ use crate::clip::Clip;
 use mousex_core::{keymap, proto::MonitorInfo};
 use mousex_native::{Button, Event, IdentifyScreen, Injector};
 
+// O servidor tem a própria cópia; esta só confere a ida e volta nos testes.
+#[cfg(test)]
 pub fn button_to_u8(button: Button) -> u8 {
     match button {
         Button::Left => 0,
@@ -164,6 +166,10 @@ pub fn clipboard_write(clip: &Clip) {
         Clip::Files(paths) => mousex_native::Clip::Files(paths.clone()),
     };
     let _ = mousex_native::clipboard_write(&native);
+}
+
+pub fn clipboard_seq() -> u32 {
+    mousex_native::clipboard_seq()
 }
 
 /// Abre arquivos copiados com os direitos do usuário comum (o agente roda elevado).
