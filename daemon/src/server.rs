@@ -358,7 +358,7 @@ impl State {
             Msg::LayoutEdited => {
                 self.apply_home_arrangement();
                 self.rebuild_layout();
-                log("layout reloaded after the editor closed");
+                log("layout reloaded from the editor");
             }
             Msg::Clipboard { from, clip } => match &self.remote {
                 None if mousex_native::clipboard_seq() != self.pull_seq => {
@@ -634,11 +634,40 @@ impl State {
             self.editor_open.store(false, Ordering::Release);
             return;
         };
+        // Telas presentes agora: o editor usa para descartar as fantasmas (máquina ou tela que não volta mais).
+        let connected = connected_view(&self.layout, &self.home, &self.connected_monitors())
+            .monitores
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<Vec<_>>()
+            .join(",");
         let (layout, tx, open, home) =
             (self.layout_path.clone(), self.tx.clone(), self.editor_open.clone(), self.home.clone());
         tokio::task::spawn_blocking(move || {
-            match std::process::Command::new(&editor).arg("--layout").arg(&layout).arg("--home").arg(&home).status() {
-                Ok(_) => {
+            let child = std::process::Command::new(&editor)
+                .arg("--layout")
+                .arg(&layout)
+                .arg("--home")
+                .arg(&home)
+                .arg("--connected")
+                .arg(&connected)
+                .stdout(std::process::Stdio::piped())
+                .spawn();
+            match child {
+                Ok(mut child) => {
+                    // Cada "saved" do editor recarrega o layout sem esperar ele fechar. Thread à parte: se um
+                    // processo do WebView2 herdar o pipe, o EOF atrasa, mas o fim do editor não depende dele.
+                    if let Some(out) = child.stdout.take() {
+                        let tx = tx.clone();
+                        std::thread::spawn(move || {
+                            for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
+                                if line.trim() == "saved" {
+                                    let _ = tx.send(Msg::LayoutEdited);
+                                }
+                            }
+                        });
+                    }
+                    let _ = child.wait();
                     let _ = tx.send(Msg::LayoutEdited);
                 }
                 Err(error) => log(&format!("failed to open the editor: {error}")),

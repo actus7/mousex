@@ -8,6 +8,7 @@ fn main() {
             bridge::save_layout,
             bridge::close_editor,
             bridge::home_machine,
+            bridge::connected_screens,
             bridge::portuguese
         ])
         .run(tauri::generate_context!())

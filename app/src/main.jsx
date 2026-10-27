@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { call } from './bridge';
-import { fitZoom, overlapping, resize, snap, validateLayout } from './layout';
+import { fitZoom, onlyConnected, overlapping, resize, snap, validateLayout } from './layout';
 import { setPortuguese, t } from './i18n.js';
 import icon from './icon.png';
 import './style.css';
@@ -20,10 +20,12 @@ function App() {
   const [dirty, setDirty] = useState(false);
   const [zoom, setZoom] = useState(0.17);
   const [home, setHome] = useState(null);
+  const [connected, setConnected] = useState(null);
   const drag = useRef(null), canvas = useRef(null);
 
   useEffect(() => {
     call('home_machine').then(name => setHome(name ?? null)).catch(() => setHome(null));
+    call('connected_screens').then(ids => setConnected(ids ?? null)).catch(() => setConnected(null));
     call('load_layout').then(data => {
       const loaded = data ?? preview();
       setLayout(loaded);
@@ -50,7 +52,19 @@ function App() {
   }
   async function save() {
     if (error) return notify(error);
-    try { await call('save_layout', { layout }); } catch (e) { notify(String(e)); }
+    try {
+      await call('save_layout', { layout });
+      setDirty(false);
+      notify(t('Salvo. Já vale para o cursor; teste e ajuste à vontade.', 'Saved. The cursor already uses it; test and keep adjusting.'));
+    } catch (e) { notify(String(e)); }
+  }
+  // Telas fantasmas (de máquinas ou monitores que não voltam) atrapalham o encaixe das reais.
+  const ghosts = connected ? layout.monitores.length - onlyConnected(layout.monitores, connected, home).length : 0;
+  function dropGhosts() {
+    setLayout(l => ({ monitores: onlyConnected(l.monitores, connected, home) }));
+    select(null);
+    setDirty(true);
+    notify(t('Telas fantasmas removidas. Salve para aplicar.', 'Ghost screens removed. Save to apply.'));
   }
 
   return <div className="shell">
@@ -60,7 +74,8 @@ function App() {
         <div><div className="eyebrow">{t('LAYOUT DA SUA MESA', 'YOUR DESK LAYOUT')}</div><h1>{t('Arrume as telas como estão na mesa', 'Arrange the screens as they sit on your desk')}</h1><p>{t('Arraste cada tela. O cursor passa entre telas cujas bordas se encostam.', 'Drag each screen. The cursor moves between screens whose edges touch.')}</p></div>
         <div className="actions">
           <button onClick={() => call('close_editor')}>{dirty ? t('Fechar sem salvar', 'Close without saving') : t('Fechar', 'Close')}</button>
-          <button className="primary" onClick={save} disabled={!!error}>{t('Salvar e fechar', 'Save and close')}</button>
+          <button onClick={dropGhosts} disabled={!ghosts} title={t('Remove as telas que não estão conectadas agora', 'Removes screens that are not connected right now')}>{t('Só telas conectadas', 'Connected screens only')}{ghosts ? ` (${ghosts})` : ''}</button>
+          <button className="primary" onClick={save} disabled={!!error || !dirty}>{t('Salvar', 'Save')}</button>
         </div>
       </div>
       <div className="workspace">

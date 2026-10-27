@@ -47,3 +47,8 @@ export function fitZoom(monitores, available) {
   const left = Math.min(...monitores.map(m => m.x)), right = Math.max(...monitores.map(m => m.x + m.width));
   return Math.max(0.03, Math.min(0.17, (available - 160) / (right - left)));
 }
+// Só telas conectadas agora: fantasmas (máquina ou tela que não volta) somem; as presentes ficam onde estão.
+export function onlyConnected(monitores, connected, home) {
+  const ids = new Set(connected);
+  return monitores.filter(m => m.machine === home || ids.has(m.id));
+}

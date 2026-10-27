@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLayout, overlapping, snap, resize, fitZoom } from './layout.js';
+import { validateLayout, overlapping, snap, resize, fitZoom, onlyConnected } from './layout.js';
 const a = { id: 'a', machine: 'desktop', x: -100, y: -50, width: 100, height: 100, scale_fator: 1 };
 const b = { ...a, id: 'b', x: 0, scale_fator: 2 };
 test('README layout accepts adjacent screens and negative coordinates', () => assert.equal(validateLayout({ monitores: [a, b] }), ''));
@@ -39,4 +39,8 @@ test('telas deste computador precisam se encostar: o Windows não aceita telas s
   assert.ok(validateLayout({ monitores: [ultra, { ...note, x: 3500 }, mac] }, 'pc'), 'vão entre as telas da casa');
   assert.ok(validateLayout({ monitores: [ultra, { ...note, x: 3440, y: 1440 }] }, 'pc'), 'encostar só no canto não conta');
   assert.equal(validateLayout({ monitores: [ultra, { ...mac, x: 9000 }] }, 'pc'), '', 'outras máquinas podem ficar soltas');
+});
+test('onlyConnected drops ghost screens and keeps home and connected ones', () => {
+  const home = { ...a, id: 'pc:1', machine: 'pc' }, mac = { ...b, id: 'mac:1', machine: 'mac' }, ghost = { ...b, id: 'mac:old', machine: 'mac', x: 500 };
+  assert.deepEqual(onlyConnected([home, mac, ghost], ['mac:1'], 'pc').map(m => m.id), ['pc:1', 'mac:1']);
 });

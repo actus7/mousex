@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-10-27
+
 ### Added
 
+- **Arrange screens…**: a **Connected screens only** button removes ghost screens (computers or monitors that are no longer connected). They could push newly connected screens away from yours, so the cursor stopped crossing between computers and only the hotkeys worked.
+- **Arrange screens…**: **Save** no longer closes the editor. The new layout applies at once, so you can test the cursor and keep adjusting.
 - Linux as a client computer: keyboard, mouse, media keys, clipboard (text, images, files and folders), screen lock and automatic updates, installed with the same `install.sh` as macOS. X11 sessions use XTest; Wayland sessions use the desktop's remote control permission (RemoteDesktop portal with libei, GNOME 46 or KDE Plasma 6.1 or newer), which is experimental.
 
 ## [1.1.3] - 2026-10-22
@@ -96,7 +100,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/actus7/mousex/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/actus7/mousex/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/actus7/mousex/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/actus7/mousex/compare/v1.1.0...v1.1.1
