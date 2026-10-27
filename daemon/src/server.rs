@@ -211,6 +211,11 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
         conn.close(crate::client::REJECTED.into(), b"recusado");
         return;
     };
+    // Nome deste servidor para o ícone do cliente (Mac e Linux); se a escrita falhar, a conexão já caiu.
+    if write_control(&mut control_tx, &Control::Server { machine: home.clone() }).await.is_err() {
+        conn.close(1u32.into(), b"escrita");
+        return;
+    }
     log(&format!("client connected: {machine}"));
     let (control, mut outgoing) = mpsc::unbounded_channel::<Control>();
     // Escritor único do stream de controle: o loop de roteamento nunca espera a rede.

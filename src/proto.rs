@@ -52,6 +52,11 @@ pub enum Control {
     Activity,
     /// Servidor → cliente: Win+L no servidor; bloquear a tela agora.
     Lock,
+    /// Servidor → cliente, após o pareamento: nome do servidor, para o ícone mostrar "Conectado a …".
+    /// Versões antigas não enviam; quem não conhece a mensagem a pula (`read_known`).
+    Server {
+        machine: String,
+    },
 }
 
 fn invalid(message: &str) -> io::Error {

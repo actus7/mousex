@@ -120,6 +120,8 @@ pub fn scroll_pixels(windows_delta: i32) -> i32 {
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
+#[cfg(target_os = "macos")]
+pub mod status_item;
 
 #[cfg(test)]
 mod tests {
