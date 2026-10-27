@@ -5,10 +5,11 @@ use crate::{
     link_status::{self, Link},
 };
 use mousex_core::i18n::{Lang, lang};
-use std::{process::Command, time::Duration};
+use std::process::Command;
 
-/// Intervalo em que o ícone confere se a ligação mudou.
-const REFRESH: Duration = Duration::from_secs(1);
+/// Intervalo em que o ícone do Linux confere se a ligação mudou (o do Mac tem o próprio NSTimer).
+#[cfg(target_os = "linux")]
+const REFRESH: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// "Conectado a <servidor>" ou "Procurando o servidor…".
 pub fn status_text(lang: Lang, link: &Link) -> String {
