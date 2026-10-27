@@ -49,6 +49,9 @@ pub fn home_monitors() -> Vec<mousex_core::proto::MonitorInfo> {
     crate::platform::local_monitors()
 }
 
+/// Windows watches every edge with the mouse hook; there are no barriers to move.
+pub fn set_neighbors(_layout: &mousex_core::ScreenLayout, _home: &str) {}
+
 pub fn set_tray_status(status: TrayStatus) {
     mousex_native::set_tray_status(status);
 }

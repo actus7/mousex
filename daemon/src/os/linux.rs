@@ -1,8 +1,8 @@
 //! Linux server host: InputCapture barriers plus a tray icon.
 use super::InputGuard;
 use crate::config::data_dir;
-use mousex_core::{keymap, proto::MonitorInfo};
-use mousex_platform_linux::{Captured, release_at, release_pending, set_holding, start_server_capture};
+use mousex_core::{ScreenLayout, keymap, proto::MonitorInfo};
+use mousex_platform_linux::{Area, Captured, release_at, release_pending, set_holding, start_server_capture};
 use std::{
     io,
     sync::{Mutex, mpsc},
@@ -66,7 +66,7 @@ pub const EDITOR: &str = "mousex-editor";
 static ZONES: Mutex<Vec<MonitorInfo>> = Mutex::new(Vec::new());
 
 pub fn start_input() -> io::Result<(InputGuard, mpsc::Receiver<Event>)> {
-    let capture = start_server_capture(data_dir().join("input-capture-token"))?;
+    let capture = start_server_capture(data_dir().join("input-capture-token"), saved_neighbors())?;
     if let Ok(mut zones) = ZONES.lock() {
         *zones = capture
             .zones
@@ -98,6 +98,23 @@ pub fn start_input() -> io::Result<(InputGuard, mpsc::Receiver<Event>)> {
         crate::log(&format!("tray icon unavailable: {error}"));
     }
     Ok((InputGuard {}, rx))
+}
+
+/// Telas dos outros computadores no layout salvo: as barreiras já nascem só nas bordas que encostam nelas.
+fn saved_neighbors() -> Vec<Area> {
+    let dir = data_dir();
+    let Some(config) = crate::config::Config::load(&dir) else { return Vec::new() };
+    neighbors(&crate::server::read_saved(&dir.join("layout.json")), &config.machine)
+}
+
+fn neighbors(layout: &ScreenLayout, home: &str) -> Vec<Area> {
+    let others = layout.monitores.iter().filter(|m| m.machine != home);
+    others.map(|m| Area { x: m.x, y: m.y, width: m.width, height: m.height }).collect()
+}
+
+/// Layout novo (lado trocado, editor, computador novo): as barreiras vão para as bordas que encostam agora.
+pub fn set_neighbors(layout: &ScreenLayout, home: &str) {
+    mousex_platform_linux::set_neighbors(neighbors(layout, home));
 }
 
 pub fn set_suppress(on: bool) -> bool {

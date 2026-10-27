@@ -249,7 +249,7 @@ Brazilian ABNT2 keyboards work best with a Mac set to the **Brazilian – ABNT2*
 MouseX detects monitor changes live. Open **Arrange screens…** from the tray to adjust the layout. You can drag the main computer's screens too: on save, Windows is rearranged to match, so there is no need to repeat the arrangement in Windows Settings. On a Linux main computer, run `mousex arrange` (or use **Arrange screens…** in `mousex monitor`); there the Linux screens follow the system settings and you move the other computers' screens around them.
 
 **Linux main computer: the cursor does not cross to the other computer.**
-Open `mousex monitor`. Each edge the cursor touches shows up in the log, with "stayed on this computer" when nothing is on that side. A new computer starts on the right: if it sits on your left, run `mousex side left` or move it in `mousex arrange`. Screens only connect where their edges touch. Also check that you allowed capturing the keyboard and mouse when MouseX started.
+Open `mousex monitor`. The log says how many screen edges capture the cursor ("pointer barriers on 1 screen edge(s)"): only edges that touch another computer do, so the others stay free for the desktop (a dock that hides at the bottom, hot corners). A new computer starts on the right: if it sits on your left, run `mousex side left` or move it in `mousex arrange`. Screens only connect where their edges touch. Also check that you allowed capturing the keyboard and mouse when MouseX started.
 
 **Where are the logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`

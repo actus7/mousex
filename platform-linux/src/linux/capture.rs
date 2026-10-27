@@ -1,7 +1,8 @@
 //! Wayland server capture: pointer barriers on the InputCapture portal, then libei
 //! (receiver) for keys, motion, buttons and the wheel while the pointer is on another computer.
-//! GNOME 46 cannot change barriers after the session is enabled, so every screen edge is armed
-//! once. An edge with no neighbor is released immediately by the server.
+//! Only edges that touch another computer's screen get a barrier; the rest stay the desktop's (a dock
+//! that hides at the bottom, hot corners). GNOME 46 takes no new barriers while the session is enabled,
+//! so a layout change disables it, replaces the barriers and enables it again, in the same session.
 use super::other;
 use ashpd::desktop::{
     PersistMode,
@@ -74,18 +75,30 @@ pub struct ServerCapture {
     pub zones: Vec<Zone>,
 }
 
+/// Another computer's screen in the layout, in the same pixel space as the zones.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Area {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 enum Cmd {
     /// The server kept the pointer: forward libei events.
     Hold,
     /// No neighbor on this edge, or the cursor came back. `None` nudges inside the barrier.
     Release(Option<(i32, i32)>),
+    /// The other computers' screens moved: barriers follow them.
+    Neighbors(Vec<Area>),
 }
 
 static COMMANDS: OnceLock<tokio_mpsc::UnboundedSender<Cmd>> = OnceLock::new();
 /// Set when a barrier hit is waiting for the server to hold or release it.
 static PENDING: AtomicBool = AtomicBool::new(false);
 
-pub fn start_server_capture(token_file: PathBuf) -> io::Result<ServerCapture> {
+/// `neighbors`: the other computers' screens. Only edges that touch one get a barrier.
+pub fn start_server_capture(token_file: PathBuf, neighbors: Vec<Area>) -> io::Result<ServerCapture> {
     let (events_tx, events_rx) = std::sync::mpsc::channel();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let (cmd_tx, cmd_rx) = tokio_mpsc::unbounded_channel();
@@ -98,7 +111,7 @@ pub fn start_server_capture(token_file: PathBuf) -> io::Result<ServerCapture> {
                 return;
             }
         };
-        let result = runtime.block_on(run(token_file, events_tx, cmd_rx, ready_tx));
+        let result = runtime.block_on(run(token_file, neighbors, events_tx, cmd_rx, ready_tx));
         if let Err(error) = result {
             eprintln!("MouseX capture ended: {error}");
         }
@@ -134,6 +147,11 @@ pub fn release_at(x: i32, y: i32) {
     command(Cmd::Release(Some((x, y))));
 }
 
+/// The layout changed: barriers move to the edges that touch the other computers now.
+pub fn set_neighbors(neighbors: Vec<Area>) {
+    command(Cmd::Neighbors(neighbors));
+}
+
 fn command(cmd: Cmd) {
     if let Some(sender) = COMMANDS.get() {
         let _ = sender.send(cmd);
@@ -156,6 +174,7 @@ struct Armed {
 
 async fn run(
     token_file: PathBuf,
+    neighbors: Vec<Area>,
     events: std::sync::mpsc::Sender<Captured>,
     mut commands: tokio_mpsc::UnboundedReceiver<Cmd>,
     ready: std::sync::mpsc::Sender<Result<Vec<Zone>, String>>,
@@ -169,7 +188,9 @@ async fn run(
         let _ = ready.send(Err(error.clone()));
         return Err(error.into());
     }
-    let armed = arm_barriers(&portal, &session, &zones, zones_reply.zone_set()).await?;
+    let mut wanted = wanted_barriers(&zones, &neighbors);
+    let mut armed = arm_barriers(&portal, &session, &wanted, zones_reply.zone_set()).await?;
+    note(&events, &format!("pointer barriers on {} screen edge(s)", armed.len()));
     let fd = portal.connect_to_eis(&session, Default::default()).await?;
     let context = ei::Context::new(std::os::unix::net::UnixStream::from(fd))?;
     let (mut connection, mut ei_events) =
@@ -191,6 +212,10 @@ async fn run(
     let mut activation: Option<u32> = None;
     let mut fallback_release: Option<(i32, i32)> = None;
     let mut holding = false;
+    // New neighbors that arrived while the cursor was away: barriers move once it is back.
+    let mut waiting: Option<Vec<Area>> = None;
+    // Disabling to move barriers may come back as a Disabled signal: not a reason to restart.
+    let mut quiet_until: Option<tokio::time::Instant> = None;
 
     loop {
         tokio::select! {
@@ -208,8 +233,10 @@ async fn run(
                 }
             }
             Some(_) = disabled.next() => {
-                note(&events, "input capture was disabled; restarting");
-                std::process::exit(1);
+                if quiet_until.is_none_or(|until| tokio::time::Instant::now() > until) {
+                    note(&events, "input capture was disabled; restarting");
+                    std::process::exit(1);
+                }
             }
             Some(hit) = activated_stream.next() => {
                 activation = hit.activation_id();
@@ -243,6 +270,30 @@ async fn run(
                             if let Err(error) = portal.enable(&session, Default::default()).await {
                                 note(&events, &format!("failed to re-enable input capture: {error}; restarting"));
                                 std::process::exit(1);
+                            }
+                        }
+                        if let Some(next) = waiting.take() {
+                            command(Cmd::Neighbors(next));
+                        }
+                    }
+                    Cmd::Neighbors(next) => {
+                        let next_wanted = wanted_barriers(&zones, &next);
+                        if same_edges(&next_wanted, &wanted) {
+                            waiting = None;
+                        } else if holding || activation.is_some() {
+                            waiting = Some(next);
+                        } else {
+                            quiet_until = Some(tokio::time::Instant::now() + Duration::from_secs(2));
+                            match rearm(&portal, &session, &next_wanted, zones_reply.zone_set()).await {
+                                Ok(now) => {
+                                    armed = now;
+                                    wanted = next_wanted;
+                                    note(&events, &format!("pointer barriers moved: {} screen edge(s)", armed.len()));
+                                }
+                                Err(error) => {
+                                    note(&events, &format!("could not move the pointer barriers: {error}; restarting"));
+                                    std::process::exit(1);
+                                }
                             }
                         }
                     }
@@ -323,26 +374,76 @@ fn zones_of(zones: &ashpd::desktop::input_capture::Zones) -> Vec<Zone> {
         .collect()
 }
 
+/// A barrier wanted on one screen edge; the id is stable per screen and edge.
+struct Wanted {
+    id: u32,
+    armed: Armed,
+    position: (i32, i32, i32, i32),
+}
+
+/// Barriers only where another computer's screen touches the edge. Everywhere else the edge stays the
+/// desktop's: a dock that hides at the bottom, hot corners and the top bar keep working.
+fn wanted_barriers(zones: &[Zone], neighbors: &[Area]) -> Vec<Wanted> {
+    let mut wanted = Vec::new();
+    for (index, zone) in zones.iter().enumerate() {
+        for (edge_index, (edge, position)) in barrier_lines(zone).into_iter().enumerate() {
+            if touches(zone, edge, neighbors) {
+                let id = (index * 4 + edge_index + 1) as u32;
+                wanted.push(Wanted { id, armed: Armed { edge, zone: zone.clone() }, position });
+            }
+        }
+    }
+    wanted
+}
+
+fn touches(zone: &Zone, edge: Edge, neighbors: &[Area]) -> bool {
+    neighbors.iter().any(|n| {
+        let rows = n.y < zone.y + zone.height && zone.y < n.y + n.height;
+        let cols = n.x < zone.x + zone.width && zone.x < n.x + n.width;
+        match edge {
+            Edge::Left => n.x + n.width == zone.x && rows,
+            Edge::Right => n.x == zone.x + zone.width && rows,
+            Edge::Top => n.y + n.height == zone.y && cols,
+            Edge::Bottom => n.y == zone.y + zone.height && cols,
+        }
+    })
+}
+
+fn same_edges(a: &[Wanted], b: &[Wanted]) -> bool {
+    a.iter().map(|w| w.id).eq(b.iter().map(|w| w.id))
+}
+
 async fn arm_barriers(
     portal: &InputCapture,
     session: &ashpd::desktop::Session<InputCapture>,
-    zones: &[Zone],
+    wanted: &[Wanted],
     zone_set: u32,
 ) -> Result<HashMap<u32, Armed>, Box<dyn std::error::Error>> {
     let mut armed = HashMap::new();
     let mut barriers = Vec::new();
-    for (index, zone) in zones.iter().enumerate() {
-        for (edge_index, (edge, position)) in barrier_lines(zone).into_iter().enumerate() {
-            let id = (index * 4 + edge_index + 1) as u32;
-            let Some(barrier_id) = BarrierID::new(id) else { continue };
-            armed.insert(id, Armed { edge, zone: zone.clone() });
-            barriers.push(Barrier::new(barrier_id, position));
-        }
+    for item in wanted {
+        let Some(barrier_id) = BarrierID::new(item.id) else { continue };
+        armed.insert(item.id, item.armed.clone());
+        barriers.push(Barrier::new(barrier_id, item.position));
     }
     let failed = portal.set_pointer_barriers(session, &barriers, zone_set, Default::default()).await?.response()?;
     for id in failed.failed_barriers() {
         armed.remove(&id.get());
     }
+    Ok(armed)
+}
+
+/// GNOME 46 takes no new barriers while the session is enabled: disable, set them, enable again. It is the
+/// same session, so the desktop does not ask for the permission again.
+async fn rearm(
+    portal: &InputCapture,
+    session: &ashpd::desktop::Session<InputCapture>,
+    wanted: &[Wanted],
+    zone_set: u32,
+) -> Result<HashMap<u32, Armed>, Box<dyn std::error::Error>> {
+    portal.disable(session, Default::default()).await?;
+    let armed = arm_barriers(portal, session, wanted, zone_set).await?;
+    portal.enable(session, Default::default()).await?;
     Ok(armed)
 }
 
@@ -520,6 +621,21 @@ mod tests {
         assert_eq!(away_from_edges(&zones, (3838, 600)), (3819, 600));
         assert_eq!(away_from_edges(&zones, (3838, 125)), (3819, 140));
         assert_eq!(away_from_edges(&zones, (900, 500)), (900, 500));
+    }
+
+    #[test]
+    fn so_a_borda_que_encosta_noutro_computador_ganha_barreira() {
+        // Duas telas da casa; a de baixo de cada uma fica livre para o dock escondido.
+        let zones = [
+            Zone { id: "1".into(), x: 0, y: 0, width: 1920, height: 1200 },
+            Zone { id: "2".into(), x: 1920, y: 120, width: 1920, height: 1080 },
+        ];
+        let ids = |neighbors: &[Area]| wanted_barriers(&zones, neighbors).iter().map(|w| w.id).collect::<Vec<_>>();
+        let mac_left = Area { x: -2056, y: 0, width: 2056, height: 1329 };
+        let mac_right = Area { x: 3840, y: 120, width: 2056, height: 1329 };
+        assert_eq!(ids(&[mac_left]), [1]);
+        assert_eq!(ids(&[mac_right]), [6]);
+        assert!(ids(&[]).is_empty());
     }
 
     #[test]
