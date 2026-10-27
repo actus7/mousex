@@ -1,3 +1,4 @@
+pub mod about;
 pub mod discovery;
 pub mod i18n;
 pub mod identity;

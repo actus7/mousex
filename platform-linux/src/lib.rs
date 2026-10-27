@@ -6,6 +6,8 @@
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+#[cfg(target_os = "linux")]
+pub mod tray;
 
 /// Um dente de roda do Windows.
 pub const WHEEL_DELTA: i32 = 120;

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Arrange screens: **Undo** and **Redo** with Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y. A whole drag, a slider movement or a held arrow key counts as one step.
 - Arrange screens: light and dark themes follow the system setting, and the fonts are bundled with the app (no requests to Google Fonts).
 - Arrange screens: **Identify screens** shows a large number on every connected screen for 3 seconds, numbered left to right (ties broken top to bottom), on every computer (Windows, macOS and Linux X11; Wayland cannot position windows).
+- Mac and Linux client: menu bar icon (macOS) or tray icon (Linux, via StatusNotifierItem) showing the connection status, **Open log** and the version with **About MouseX**.
 
 ### Fixed
 

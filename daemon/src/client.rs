@@ -1,6 +1,7 @@
 //! Papel cliente: localiza o servidor, conecta, injeta e reconecta para sempre.
 use crate::clip;
 use crate::clip::Clip;
+use crate::link_status;
 use mousex_core::{
     net::{self, Link},
     proto::{Control, MonitorInfo, Motion, is_newer, read_known, write_control},
@@ -79,6 +80,7 @@ pub async fn client_loop<P, L, LF, A, AF>(
                 let started = std::time::Instant::now();
                 let rejected = session(link, &message, &mut platform).await;
                 platform.release_all();
+                link_status::set(link_status::Link::Searching);
                 if rejected {
                     wait = REJECTED_WAIT;
                 } else if started.elapsed() >= STABLE_SESSION {
@@ -102,6 +104,7 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
         _ => (String::new(), Vec::new()),
     };
     platform.set_monitors(&current);
+    link_status::set(link_status::Link::Connected(String::new()));
     let index = |current: &[MonitorInfo], id: &str| current.iter().position(|m| m.id == id);
     let mut poll = tokio::time::interval_at(tokio::time::Instant::now() + MONITOR_POLL, MONITOR_POLL);
 
@@ -160,6 +163,7 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
                 }
                 Some(Control::Identify { screens }) => platform.identify(&screens),
                 Some(Control::Hello { .. }) => {}
+                Some(Control::Server { machine }) => link_status::set(link_status::Link::Connected(machine)),
             },
             datagram = conn.read_datagram() => match datagram {
                 Err(_) => break,

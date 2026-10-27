@@ -111,25 +111,11 @@ fn menu_items(status: &TrayStatus) -> Vec<(usize, String, u32)> {
 }
 
 fn about_text(portuguese: bool) -> String {
-    let t = |pt: &'static str, en: &'static str| if portuguese { pt } else { en };
-    format!(
-        "MouseX {}
-
-{}
-
-{} {}
-{} {}
-
-{}",
+    mousex_core::about::about_text(
+        portuguese,
         env!("CARGO_PKG_VERSION"),
-        t(
-            "Teclado, mouse e área de transferência compartilhados entre computadores Windows, Mac e Linux.",
-            "Keyboard, mouse and clipboard shared across Windows, Mac and Linux computers.",
-        ),
-        t("Autor:", "Author:"),
         env!("CARGO_PKG_AUTHORS"),
-        t("Licença:", "License:"),
-        env!("CARGO_PKG_LICENSE").replace(" OR ", t(" ou ", " or ")),
+        env!("CARGO_PKG_LICENSE"),
         env!("CARGO_PKG_REPOSITORY"),
     )
 }
