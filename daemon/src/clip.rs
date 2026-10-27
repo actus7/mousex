@@ -1,4 +1,5 @@
 //! Clipboard em stream QUIC unidirecional próprio: imagem grande ou arquivos nunca atrasam teclas nem movimento.
+use crate::transfer_progress::{self, Progress};
 use mousex_core::MAX_CLIPBOARD_TEXT_BYTES;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Conteúdo de clipboard trafegado entre máquinas; cada plataforma converte do formato nativo.
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +30,8 @@ const KIND_FILES: u8 = 3;
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(10);
 /// Transferências guardadas na pasta de recebidos: a nova e a anterior (pode estar sendo colada ou repassada).
 const KEPT_TRANSFERS: usize = 2;
+/// Pedaço de leitura ao gravar arquivos recebidos: pequeno o bastante para o cancelamento responder logo.
+const COPY_CHUNK: usize = 64 * 1024;
 
 /// Lista do que vem no stream, na ordem dos bytes: caminhos relativos com "/", sempre dentro de uma raiz.
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -239,33 +242,48 @@ fn transfer_dir(inbox: &Path) -> io::Result<PathBuf> {
     Ok(dir)
 }
 
-pub async fn receive(mut stream: quinn::RecvStream, inbox: &Path) -> Option<Clip> {
-    let header = async {
-        let mut header = [0u8; 5];
-        stream.read_exact(&mut header).await.ok()?;
-        Some((header[0], u32::from_le_bytes(header[1..5].try_into().ok()?) as usize))
+/// Toda recusa ou falha do recebimento passa pelo log, com o motivo (sem isso nada aparece para o usuário).
+fn fail(reason: &str) -> Option<Clip> {
+    crate::log(reason);
+    None
+}
+
+async fn read_header(stream: &mut quinn::RecvStream) -> io::Result<(u8, usize)> {
+    let mut header = [0u8; 5];
+    stream.read_exact(&mut header).await.map_err(|error| io::Error::other(format!("{error:?}")))?;
+    Ok((header[0], u32::from_le_bytes([header[1], header[2], header[3], header[4]]) as usize))
+}
+
+pub async fn receive(mut stream: quinn::RecvStream, inbox: &Path, progress: &Progress) -> Option<Clip> {
+    let (kind, length) = match tokio::time::timeout(TRANSFER_TIMEOUT, read_header(&mut stream)).await {
+        Ok(Ok(header)) => header,
+        Ok(Err(error)) => return fail(&format!("incoming clipboard refused: header not read: {error}")),
+        Err(_) => return fail("incoming clipboard refused: header timed out"),
     };
-    let (kind, length) = tokio::time::timeout(TRANSFER_TIMEOUT, header).await.ok()??;
     if kind == KIND_FILES {
-        return receive_files(stream, length, inbox).await;
+        return receive_files(stream, length, inbox, progress).await;
     }
-    let transfer = async {
-        let limit = match kind {
-            KIND_TEXT => MAX_CLIPBOARD_TEXT_BYTES,
-            KIND_PNG => MAX_CLIPBOARD_IMAGE_BYTES,
-            _ => return None,
-        };
-        if length > limit {
-            return None;
-        }
-        let mut bytes = vec![0u8; length];
-        stream.read_exact(&mut bytes).await.ok()?;
-        match kind {
-            KIND_TEXT => String::from_utf8(bytes).ok().map(Clip::Text),
-            _ => Some(Clip::Png(bytes)),
-        }
+    let limit = match kind {
+        KIND_TEXT => MAX_CLIPBOARD_TEXT_BYTES,
+        KIND_PNG => MAX_CLIPBOARD_IMAGE_BYTES,
+        _ => return fail(&format!("incoming clipboard refused: unknown kind {kind}")),
     };
-    tokio::time::timeout(TRANSFER_TIMEOUT, transfer).await.ok()?
+    if length > limit {
+        return fail(&format!("incoming clipboard refused: {length} bytes is over the limit of {limit}"));
+    }
+    let mut bytes = vec![0u8; length];
+    match tokio::time::timeout(TRANSFER_TIMEOUT, stream.read_exact(&mut bytes)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return fail(&format!("incoming clipboard refused: body not read: {error:?}")),
+        Err(_) => return fail("incoming clipboard refused: body timed out"),
+    }
+    match kind {
+        KIND_TEXT => match String::from_utf8(bytes) {
+            Ok(text) => Some(Clip::Text(text)),
+            Err(_) => fail("incoming clipboard refused: text is not UTF-8"),
+        },
+        _ => Some(Clip::Png(bytes)),
+    }
 }
 
 /// Uma cópia de arquivos chegando por vez (em qualquer conexão): várias de 2 GB ao mesmo tempo encheriam o disco.
@@ -281,55 +299,110 @@ impl Drop for ReceivingGuard {
     }
 }
 
-async fn receive_files(mut stream: quinn::RecvStream, length: usize, inbox: &Path) -> Option<Clip> {
+async fn receive_files(
+    mut stream: quinn::RecvStream,
+    length: usize,
+    inbox: &Path,
+    progress: &Progress,
+) -> Option<Clip> {
     if length > MAX_MANIFEST_BYTES {
-        return None;
+        return fail(&format!("file copy refused: manifest of {length} bytes is over the limit"));
     }
     let mut body = vec![0u8; length];
-    tokio::time::timeout(TRANSFER_TIMEOUT, stream.read_exact(&mut body)).await.ok()?.ok()?;
-    let manifest: Manifest = serde_json::from_slice(&body).ok().filter(valid_manifest)?;
+    match tokio::time::timeout(TRANSFER_TIMEOUT, stream.read_exact(&mut body)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return fail(&format!("file copy failed: manifest not read: {error:?}")),
+        Err(_) => return fail("file copy failed: manifest timed out"),
+    }
+    let Some(manifest) = serde_json::from_slice::<Manifest>(&body).ok().filter(valid_manifest) else {
+        return fail("file copy refused: manifest is invalid");
+    };
     if RECEIVING.swap(true, std::sync::atomic::Ordering::AcqRel) {
-        crate::log("file copy refused: another one is still arriving");
-        return None;
+        return fail("file copy refused: another one is still arriving");
     }
     let _receiving = ReceivingGuard;
     let total: u64 = manifest.files.iter().map(|(_, size)| size).sum();
+    progress.set_total(total);
+    progress.set_label(transfer_progress::label(&manifest.roots));
     let inbox = inbox.to_path_buf();
-    let dest = match tokio::task::spawn_blocking(move || transfer_dir(&inbox)).await.ok()? {
-        Ok(dest) => dest,
-        Err(error) => {
-            crate::log(&format!("file copy refused: {error}"));
-            return None;
-        }
+    let dest = match tokio::task::spawn_blocking(move || transfer_dir(&inbox)).await {
+        Ok(Ok(dest)) => dest,
+        Ok(Err(error)) => return fail(&format!("file copy refused: folder not created: {error}")),
+        Err(error) => return fail(&format!("file copy refused: folder task failed: {error}")),
     };
     let remove = |dest: PathBuf| tokio::task::spawn_blocking(move || std::fs::remove_dir_all(dest));
     if crate::platform::free_space(&dest).is_some_and(|free| free < total.saturating_add(FREE_MARGIN)) {
-        crate::log(&format!("file copy refused: not enough disk space for {} MB", total >> 20));
         let _ = remove(dest).await;
-        return None;
+        return fail(&format!("file copy refused: not enough disk space for {} MB", total >> 20));
     }
-    let write = async {
-        for dir in &manifest.dirs {
-            tokio::fs::create_dir_all(dest.join(dir)).await.ok()?;
+    let outcome = tokio::time::timeout(files_timeout(total), async {
+        tokio::select! {
+            biased;
+            _ = progress.cancelled() => Err("cancelled by the user".to_string()),
+            result = write_files(&mut stream, &manifest, &dest, progress) => result,
         }
-        for (relative, size) in &manifest.files {
-            let target = dest.join(relative);
-            if let Some(parent) = target.parent() {
-                tokio::fs::create_dir_all(parent).await.ok()?;
-            }
-            let mut file = tokio::fs::File::create(&target).await.ok()?;
-            if tokio::io::copy(&mut (&mut stream).take(*size), &mut file).await.ok()? != *size {
-                return None;
-            }
-        }
-        Some(())
+    })
+    .await;
+    if progress.is_cancelled() {
+        // Avisa o remetente para parar de mandar (senão ele espera o tempo limite à toa).
+        let _ = stream.stop(0u32.into());
+    }
+    let failure = match outcome {
+        Ok(Ok(())) => None,
+        Ok(Err(_)) if progress.is_cancelled() => Some("file copy cancelled by the user".to_string()),
+        Ok(Err(reason)) => Some(format!("file copy failed: {reason}")),
+        Err(_) => Some(format!("file copy failed: timed out after {:?}", files_timeout(total))),
     };
-    if tokio::time::timeout(files_timeout(total), write).await.ok().flatten().is_none() {
+    if let Some(reason) = failure {
         let _ = remove(dest).await;
-        return None;
+        return fail(&reason);
     }
     crate::log(&format!("{} file(s) received, {} KB", manifest.files.len(), total / 1024));
     Some(Clip::Files(manifest.roots.iter().map(|root| dest.join(root)).collect()))
+}
+
+/// Grava pastas e arquivos do manifesto em `dest`; o motivo da falha volta como texto para o log.
+async fn write_files(
+    stream: &mut quinn::RecvStream,
+    manifest: &Manifest,
+    dest: &Path,
+    progress: &Progress,
+) -> Result<(), String> {
+    for dir in &manifest.dirs {
+        tokio::fs::create_dir_all(dest.join(dir)).await.map_err(|error| format!("folder {dir}: {error}"))?;
+    }
+    for (relative, size) in &manifest.files {
+        let target = dest.join(relative);
+        if let Some(parent) = target.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|error| format!("folder of {relative}: {error}"))?;
+        }
+        let mut file = tokio::fs::File::create(&target).await.map_err(|error| format!("create {relative}: {error}"))?;
+        copy_file(stream, &mut file, *size, progress).await?;
+    }
+    Ok(())
+}
+
+/// Copia `size` bytes do stream para o arquivo em pedaços, contando o progresso a cada pedaço.
+async fn copy_file(
+    stream: &mut quinn::RecvStream,
+    file: &mut tokio::fs::File,
+    size: u64,
+    progress: &Progress,
+) -> Result<(), String> {
+    let mut buffer = vec![0u8; COPY_CHUNK];
+    let mut left = size;
+    while left > 0 {
+        let want = left.min(COPY_CHUNK as u64) as usize;
+        // Leitura do tokio (não o read próprio do quinn, que devolve Option).
+        let read = AsyncReadExt::read(stream, &mut buffer[..want]).await.map_err(|error| format!("read: {error}"))?;
+        if read == 0 {
+            return Err("sender stopped before the end of a file".to_string());
+        }
+        file.write_all(&buffer[..read]).await.map_err(|error| format!("write: {error}"))?;
+        left -= read as u64;
+        progress.advance(read as u64);
+    }
+    file.flush().await.map_err(|error| format!("write: {error}"))
 }
 
 #[cfg(test)]
@@ -390,11 +463,13 @@ mod tests {
         std::fs::write(source.join("pasta/b.bin"), &big).expect("b");
         let (sender, receiver) = pair().await;
         let inbox = temp("recebidos");
+        let progress = Progress::default();
         let clip = Clip::Files(vec![source.join("a.txt"), source.join("pasta")]);
         let (sent, received) = tokio::join!(send(&sender, &clip), async {
-            receive(receiver.accept_uni().await.expect("stream"), &inbox).await
+            receive(receiver.accept_uni().await.expect("stream"), &inbox, &progress).await
         });
         assert!(sent.is_some());
+        assert_eq!(progress.snapshot(), (300_004, 300_004), "progresso chega ao total");
         let Some(Clip::Files(paths)) = received else { panic!("nada recebido") };
         let names: Vec<_> = paths.iter().map(|p| p.file_name().expect("nome").to_string_lossy().to_string()).collect();
         assert_eq!(names, ["a.txt", "pasta"]);
@@ -417,11 +492,30 @@ mod tests {
             stream.write_all(b"abc").await.expect("conteúdo");
             stream.finish().expect("fim");
         };
-        let (_, received) =
-            tokio::join!(send, async { receive(receiver.accept_uni().await.expect("stream"), &inbox).await });
+        let progress = Progress::default();
+        let (_, received) = tokio::join!(send, async {
+            receive(receiver.accept_uni().await.expect("stream"), &inbox, &progress).await
+        });
         assert_eq!(received, None);
         assert!(!inbox.exists(), "nem a pasta de recebidos é criada");
         assert!(!inbox.parent().expect("pai").join("escapou.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn cancelar_a_copia_apaga_a_pasta_parcial_e_para_o_remetente() {
+        let source = temp("origem-cancelar");
+        std::fs::write(source.join("grande.bin"), vec![7u8; 8 * 1024 * 1024]).expect("grande");
+        let (sender, receiver) = pair().await;
+        let inbox = temp("recebidos-cancelar");
+        let progress = Progress::default();
+        progress.cancel();
+        let clip = Clip::Files(vec![source.join("grande.bin")]);
+        let (sent, received) = tokio::join!(send(&sender, &clip), async {
+            receive(receiver.accept_uni().await.expect("stream"), &inbox, &progress).await
+        });
+        assert_eq!(received, None);
+        assert!(sent.is_none(), "o remetente vê a cópia parar");
+        assert_eq!(std::fs::read_dir(&inbox).expect("caixa").count(), 0, "nenhuma pasta parcial sobra");
     }
 
     #[test]

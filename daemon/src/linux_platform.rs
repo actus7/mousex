@@ -163,6 +163,25 @@ impl Platform for LinuxPlatform {
     }
 }
 
+/// Painel de transferência no Linux. ponytail: só o aviso, via notify-send (em thread própria, para não travar a
+/// sessão); sem janela de progresso nem Cancelar, que ficam para quando houver janela X11 para isso.
+pub fn show_panel(
+    title: &str,
+    poll: Box<dyn Fn() -> Option<(String, Option<u8>)> + Send>,
+    cancel: Option<(String, Box<dyn Fn() + Send>)>,
+) {
+    if cancel.is_some() {
+        return;
+    }
+    let Some((text, _)) = poll() else { return };
+    let title = title.to_string();
+    std::thread::spawn(move || {
+        if let Err(error) = std::process::Command::new("notify-send").arg(title).arg(text).status() {
+            crate::log(&format!("notification unavailable: {error}"));
+        }
+    });
+}
+
 /// "Identificar telas": número em cada monitor deste computador (ids nativos da mensagem).
 pub fn show_identify(screens: &[(String, u32)]) {
     let found: Vec<(linux::Rect, u32)> = numbered(&local_monitors(), screens)

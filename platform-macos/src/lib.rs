@@ -149,7 +149,7 @@ pub use macos::*;
 #[cfg(target_os = "macos")]
 mod overlay;
 #[cfg(target_os = "macos")]
-pub use overlay::{show_identify, IdentifyScreen};
+pub use overlay::{show_identify, show_panel, IdentifyScreen, PanelPoll};
 #[cfg(target_os = "macos")]
 pub mod status_item;
 

@@ -165,7 +165,20 @@ pub fn clipboard_write(clip: &Clip) {
         Clip::Png(png) => mousex_native::Clip::Png(png.clone()),
         Clip::Files(paths) => mousex_native::Clip::Files(paths.clone()),
     };
-    let _ = mousex_native::clipboard_write(&native);
+    if let Err(error) = mousex_native::clipboard_write(&native) {
+        crate::log(&format!("failed to write the clipboard: {error}"));
+    }
+}
+
+/// Painel de transferência (progresso com Cancelar, ou só aviso sem botão); roda na thread da janela.
+pub fn show_panel(
+    title: &str,
+    poll: Box<dyn Fn() -> Option<(String, Option<u8>)> + Send>,
+    cancel: Option<(String, Box<dyn Fn() + Send>)>,
+) {
+    if let Err(error) = mousex_native::show_panel(title, poll, cancel) {
+        crate::log(&format!("failed to show the panel: {error}"));
+    }
 }
 
 pub fn clipboard_seq() -> u32 {

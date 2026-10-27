@@ -39,6 +39,8 @@ pub(crate) mod server;
 mod side;
 #[cfg(windows)]
 mod supervisor;
+pub(crate) mod transfer_progress;
+pub(crate) mod transfer_ui;
 pub(crate) mod update;
 
 use config::{Config, Role, data_dir};
