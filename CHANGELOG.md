@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-10-27
+
 ### Fixed
 
-- After changing a screen's resolution the cursor could only reach part of it. A client screen that grows or shrinks now keeps touching its neighbors (it grows toward the free side). If it no longer fits, that computer's screens are placed again instead of keeping the old size. Changes to this computer's own screens are noticed within 2 s.
+- After changing a screen's resolution the cursor could only reach part of it. A client screen that grows or shrinks now keeps touching its neighbors (it grows toward the free side). With no free side it grows to the left and pushes the screens on its left along, so the desk arrangement stays the same. If even that would move this computer's screens, that computer's screens are placed again instead of keeping the old size. Changes to this computer's own screens are noticed within 2 s.
 
 ## [1.1.4] - 2026-10-27
 
@@ -104,7 +106,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.1.5...HEAD
+[1.1.5]: https://github.com/actus7/mousex/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/actus7/mousex/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/actus7/mousex/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/actus7/mousex/compare/v1.1.1...v1.1.2
