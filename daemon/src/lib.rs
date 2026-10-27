@@ -100,6 +100,7 @@ pub fn agent_main() {
     // A tarefa inicia o vigia; ele inicia o agente de verdade com `worker` e o religa se cair.
     #[cfg(windows)]
     if std::env::args().nth(1).as_deref() != Some(supervisor::WORKER) {
+        install::refresh_update_task();
         return supervisor::supervise();
     }
     if !platform::prepare() {

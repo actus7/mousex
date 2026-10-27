@@ -88,7 +88,7 @@ Numa sessão **X11** o MouseX funciona direto. No **Wayland** ele usa a permiss�
 
 ### Atualizar e desinstalar
 
-- **Atualizar:** é automático. Cada computador procura uma versão nova uma vez por dia e instala sozinho, mas só se ela tiver uma assinatura válida do MouseX. Os pareamentos e o layout de telas são mantidos. Para travar a versão, ponha `"auto_update": false` no `config.json` da pasta de dados; para atualizar na hora, rode `mousex update`.
+- **Atualizar:** é automático. Cada computador procura uma versão nova a cada 30 minutos e instala sozinho, mas só se ela tiver uma assinatura válida do MouseX. Os pareamentos e o layout de telas são mantidos. Para travar a versão, ponha `"auto_update": false` no `config.json` da pasta de dados; para atualizar na hora, rode `mousex update`.
 - **Desinstalar no Windows:** **Configurações → Aplicativos → MouseX**, ou execute `"C:\Program Files\MouseX\mousex.exe" uninstall` em um terminal elevado.
 - **Desinstalar no macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
 - **Desinstalar no Linux:** `~/.local/share/mousex/bin/mousex uninstall`

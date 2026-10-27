@@ -260,7 +260,7 @@ The log file is `mousex.log`. Use the tray's **Open log** item, or `mousex statu
 | Autostart | Scheduled task `MouseX`, at logon, elevated | LaunchAgent `com.mousex.agent` | Autostart entry `mousex.desktop` starting the systemd user service `mousex.service` |
 | Firewall | Rule `MouseX`, UDP 41414 and 41415, remote `localsubnet` | Not applicable | Not changed (most desktop distributions allow outgoing UDP) |
 | Permission | None extra | Accessibility for `mousex-agent` | Wayland only: remote control, asked once by the desktop |
-| Update | Task `MouseX Update` as SYSTEM, daily and 10 min after boot | The agent runs `mousex update` 10 min after start, then every 24 h | Same as macOS; the agent restarts through systemd |
+| Update | Task `MouseX Update` as SYSTEM, every 30 min and 10 min after boot; the agent re-creates it at start | The agent runs `mousex update` 10 min after start, then every 30 min | Same as macOS; the agent restarts through systemd |
 | Uninstall | Settings → Apps, or `mousex uninstall` | `mousex uninstall` | `mousex uninstall` |
 
 Updates keep pairings, the layout, and the identity, so already-paired machines reconnect without a new code. `mousex update` finds the newest tag through the `/releases/latest` redirect, downloads the package, `SHA256SUMS` and `SHA256SUMS.sig` with the system `curl`, checks the Ed25519 signature (tag + sums) and the hash, unpacks with the system `tar`, swaps each binary keeping a `.old` copy, and runs `mousex version` on the new one. If that fails the `.old` files come back. On macOS the new binaries are re-signed with the local identity before the agent restarts.

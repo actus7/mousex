@@ -169,7 +169,8 @@ pub fn task_xml(exe: &Path, user: &str) -> String {
     )
 }
 
-/// Todo dia (hora sorteada na janela de 4 h, para não baterem todos juntos no GitHub) e 10 min após ligar.
+/// A cada 30 min e 10 min após ligar. Conferir é um único redirecionamento do GitHub (sem API nem limite);
+/// só baixa quando há versão nova.
 pub fn update_task_xml(cli: &Path) -> String {
     let cli = escape(&cli.display().to_string());
     format!(
@@ -178,7 +179,7 @@ pub fn update_task_xml(cli: &Path) -> String {
   <RegistrationInfo><Description>MouseX: automatic updates (signed releases only)</Description></RegistrationInfo>
   <Triggers>
     <BootTrigger><Enabled>true</Enabled><Delay>PT10M</Delay></BootTrigger>
-    <CalendarTrigger><StartBoundary>2026-01-01T12:00:00</StartBoundary><Enabled>true</Enabled><RandomDelay>PT4H</RandomDelay><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>
+    <CalendarTrigger><Repetition><Interval>PT30M</Interval><Duration>P1D</Duration></Repetition><StartBoundary>2026-01-01T00:00:00</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>
   </Triggers>
   <Principals><Principal id="System"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -194,6 +195,19 @@ pub fn update_task_xml(cli: &Path) -> String {
 </Task>
 "#
     )
+}
+
+/// O update só troca os binários: o agente instalado (elevado) recria a tarefa de atualização ao subir,
+/// para ela seguir o agendamento da versão atual e voltar se tiver sido apagada.
+pub(crate) fn refresh_update_task() {
+    let Ok(dir) = install_dir() else { return };
+    let installed = std::env::current_exe().is_ok_and(|exe| exe.parent() == Some(dir.as_path()));
+    if !installed {
+        return;
+    }
+    if let Err(error) = create_task(UPDATE_TASK, &update_task_xml(&dir.join(CLI))) {
+        crate::log(&format!("update task could not be refreshed: {error}"));
+    }
 }
 
 /// schtasks lê XML em UTF-16 LE com BOM.
@@ -493,7 +507,7 @@ mod tests {
         let xml = update_task_xml(Path::new(r"C:\Program Files\MouseX\mousex.exe"));
         assert!(xml.contains("<UserId>S-1-5-18</UserId>"), "SYSTEM grava em Program Files sem UAC");
         assert!(xml.contains(r"<Command>C:\Program Files\MouseX\mousex.exe</Command><Arguments>update</Arguments>"));
-        assert!(xml.contains("<RandomDelay>PT4H</RandomDelay>") && xml.contains("<BootTrigger>"));
+        assert!(xml.contains("<Interval>PT30M</Interval>") && xml.contains("<BootTrigger>"));
     }
 
     #[test]

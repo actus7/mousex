@@ -1,5 +1,5 @@
 //! `mousex update`: baixa a release mais nova, confere assinatura e hash, troca os binários e volta
-//! atrás se o novo não abrir. Windows: tarefa diária como SYSTEM. Mac e Linux: o agente chama a cada 24 h.
+//! atrás se o novo não abrir. Windows: tarefa como SYSTEM a cada 30 min. Mac e Linux: o agente chama a cada 30 min.
 //! `curl` e `tar` são os do sistema (Windows 10+, macOS e as distribuições comuns já trazem os dois).
 use crate::{
     config::{Config, data_dir},
@@ -199,9 +199,11 @@ fn record_version(tag: &str) {
 #[cfg(not(windows))]
 fn record_version(_: &str) {}
 
-/// Mac e Linux: o agente roda `mousex update` 10 min depois de subir e depois a cada 24 h.
-// ponytail: o sleep pausa com o Mac dormindo, então "24 h" pode virar mais; o reinício diário do agente
-// (logon) compensa. Agendar pelo launchd (StartCalendarInterval) se isso atrasar demais.
+#[cfg(not(windows))]
+const UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Mac e Linux: o agente roda `mousex update` 10 min depois de subir e depois a cada 30 min.
+// ponytail: o sleep pausa com o Mac dormindo, então o intervalo pode esticar; com 30 min isso pouco importa.
 #[cfg(not(windows))]
 pub fn schedule() {
     std::thread::spawn(|| {
@@ -210,7 +212,7 @@ pub fn schedule() {
             if let Ok(dir) = bin_dir() {
                 let _ = Command::new(dir.join(CLI)).arg("update").status();
             }
-            std::thread::sleep(std::time::Duration::from_secs(86_400));
+            std::thread::sleep(UPDATE_INTERVAL);
         }
     });
 }

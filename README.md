@@ -88,7 +88,7 @@ On an **X11** session MouseX works directly. On **Wayland** it uses the desktop'
 
 ### Updating and uninstalling
 
-- **Update:** automatic. Every computer checks for a new release once a day and installs it by itself, but only if it carries a valid MouseX signature. Pairings and your screen layout are kept. To pin a version, set `"auto_update": false` in `config.json` in the data folder; to update right away, run `mousex update`.
+- **Update:** automatic. Every computer checks for a new release every 30 minutes and installs it by itself, but only if it carries a valid MouseX signature. Pairings and your screen layout are kept. To pin a version, set `"auto_update": false` in `config.json` in the data folder; to update right away, run `mousex update`.
 - **Uninstall on Windows:** **Settings → Apps → MouseX**, or run `"C:\Program Files\MouseX\mousex.exe" uninstall` in an elevated terminal.
 - **Uninstall on macOS:** `~/Library/Application\ Support/mousex/bin/mousex uninstall`
 - **Uninstall on Linux:** `~/.local/share/mousex/bin/mousex uninstall`
