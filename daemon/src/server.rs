@@ -93,6 +93,8 @@ enum Msg {
     HomeCopied {
         to: String,
         clip: Clip,
+        /// Sequência do clipboard lida; outra cópia feita aqui depois torna esta velha.
+        seq: u32,
     },
     /// Editor fechado: o layout salvo pode ter mudado.
     LayoutEdited,
@@ -458,8 +460,8 @@ impl State {
                 }
                 Some(_) => self.relay.copied(clip, &from, None),
             },
-            // Leitura lenta: o cursor pode já estar em outro remoto, e uma cópia remota mais nova vence.
-            Msg::HomeCopied { to, clip } if self.relay.is_empty() => {
+            // Leitura lenta: o cursor pode já estar em outro remoto, e uma cópia mais nova (remota ou daqui) vence.
+            Msg::HomeCopied { to, clip, seq } if self.relay.is_empty() && seq == platform::clipboard_seq() => {
                 let home = self.home.clone();
                 self.relay.copied(clip, &home, Some(&to));
                 if let Some(remote) = self.remote.clone() {
@@ -649,7 +651,7 @@ impl State {
                         if let Ok(Some(clip)) = tokio::task::spawn_blocking(clipboard_read).await {
                             sent.store(seq, Ordering::Relaxed);
                             clip::send(&conn, &clip).await;
-                            let _ = tx.send(Msg::HomeCopied { to: machine, clip });
+                            let _ = tx.send(Msg::HomeCopied { to: machine, clip, seq });
                         }
                     });
                 }
