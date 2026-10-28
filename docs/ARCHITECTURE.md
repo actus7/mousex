@@ -134,7 +134,7 @@ Control messages:
 
 | Message | Direction | Meaning |
 |---|---|---|
-| `Hello { machine, monitors }` | client → server | On connect, and whenever the monitors change |
+| `Hello { machine, monitors, version }` | client → server | On connect, and whenever the monitors change. `version` is the client's MouseX version for the tray menu; clients before 1.5.0 omit it |
 | `Enter { monitor_id, x, y }` | server → client | The cursor entered this client, at local coordinates |
 | `Leave` | server → client | Release everything |
 | `Key { hid, down }` | server → client | Keyboard key, as a USB HID usage |
