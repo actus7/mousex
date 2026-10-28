@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The tray menu of the main computer shows the MouseX version of each connected computer next to its name. Computers on 1.4.0 or older show no version until they update.
+
 ## [1.4.0] - 2026-10-28
 
 ### Added

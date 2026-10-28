@@ -221,8 +221,9 @@ pub fn run_menu_bar() {
 fn menu_rows(lang: Lang) -> Vec<Row> {
     let status = STATUS.lock().ok().and_then(|last| last.clone()).unwrap_or_default();
     let mut rows = Vec::new();
-    for (index, (name, connected)) in status.machines.iter().enumerate() {
-        let title = format!("{} {name}", if *connected { "●" } else { "○" });
+    for (index, (name, connected, version)) in status.machines.iter().enumerate() {
+        let version = version.as_deref().map(|v| format!("   v{v}")).unwrap_or_default();
+        let title = format!("{} {name}{version}", if *connected { "●" } else { "○" });
         match (*connected, index < JUMP_LIMIT) {
             (true, true) => rows.push(Row::Action { title, id: index + 1 }),
             _ => rows.push(Row::Label(title)),

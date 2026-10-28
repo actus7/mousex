@@ -108,7 +108,11 @@ async fn network_loop(endpoint: &quinn::Endpoint, config: &Config, dir: &std::pa
                 link.conn.close(crate::client::REJECTED.into(), b"unpaired server");
             } else {
                 let monitors = crate::platform::local_monitors();
-                let hello = Control::Hello { machine: config.machine.clone(), monitors: monitors.clone() };
+                let hello = Control::Hello {
+                    machine: config.machine.clone(),
+                    monitors: monitors.clone(),
+                    version: Some(mousex_core::proto::VERSION.into()),
+                };
                 if write_control(&mut link.control_tx, &hello).await.is_ok() {
                     let started = std::time::Instant::now();
                     if input_session(link, config.machine.clone(), monitors, input).await {
@@ -192,7 +196,7 @@ async fn input_session(
             _ = poll.tick() => {
                 let now = crate::platform::local_monitors();
                 if !now.is_empty() && now != monitors {
-                    if write_control(&mut control_tx, &Control::Hello { machine: machine.clone(), monitors: now.clone() }).await.is_err() { break; }
+                    if write_control(&mut control_tx, &Control::Hello { machine: machine.clone(), monitors: now.clone(), version: Some(mousex_core::proto::VERSION.into()) }).await.is_err() { break; }
                     monitors = now;
                 }
                 None

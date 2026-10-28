@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+/// Versão deste build (workspace inteiro tem a mesma).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MAX_CONTROL_BYTES: usize = 64 * 1024;
 const MOTION_TAG: u8 = 0x4D;
 
@@ -22,6 +24,9 @@ pub enum Control {
     Hello {
         machine: String,
         monitors: Vec<MonitorInfo>,
+        /// Versão do MouseX do cliente, para o menu do servidor. Clientes antigos não enviam.
+        #[serde(default)]
+        version: Option<String>,
     },
     /// Servidor → cliente: cursor entrou; coordenadas locais do monitor.
     Enter {
@@ -151,6 +156,7 @@ mod tests {
             Control::Hello {
                 machine: "win2".into(),
                 monitors: vec![MonitorInfo { id: "m1".into(), x: -1920, y: 0, width: 1920, height: 1080, scale: 1.5 }],
+                version: Some("1.4.0".into()),
             },
             Control::Enter { monitor_id: "m1".into(), x: 0, y: 333 },
             Control::Leave,
@@ -189,12 +195,19 @@ mod tests {
 
     #[tokio::test]
     async fn control_acima_de_64k_rejeitado() {
-        let huge = Control::Hello { machine: "x".repeat(MAX_CONTROL_BYTES + 1), monitors: vec![] };
+        let huge = Control::Hello { machine: "x".repeat(MAX_CONTROL_BYTES + 1), monitors: vec![], version: None };
         let (mut a, _b) = tokio::io::duplex(1024);
         assert!(write_control(&mut a, &huge).await.is_err());
         let header = ((MAX_CONTROL_BYTES + 1) as u32).to_le_bytes();
         let mut forged = header.as_slice();
         assert!(read_control(&mut forged).await.is_err());
+    }
+
+    #[test]
+    fn hello_de_cliente_antigo_chega_sem_versao() {
+        let old = r#"{"Hello":{"machine":"mac","monitors":[]}}"#;
+        let hello: Control = serde_json::from_str(old).expect("hello antigo");
+        assert_eq!(hello, Control::Hello { machine: "mac".into(), monitors: vec![], version: None });
     }
 
     #[test]

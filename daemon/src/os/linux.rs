@@ -125,7 +125,7 @@ pub fn set_tray_status(status: TrayStatus) {
 pub fn connected_machines() -> Vec<String> {
     let Ok(last) = STATUS.lock() else { return Vec::new() };
     let machines = last.as_ref().map(|status| status.machines.as_slice()).unwrap_or_default();
-    machines.iter().filter(|(_, connected)| *connected).map(|(name, _)| name.clone()).collect()
+    machines.iter().filter(|(_, connected, _)| *connected).map(|(name, _, _)| name.clone()).collect()
 }
 
 pub fn open_log() {

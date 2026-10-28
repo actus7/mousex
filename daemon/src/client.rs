@@ -106,7 +106,7 @@ pub async fn client_loop<P, L, LF, A, AF>(
 async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> bool {
     let Link { conn, mut control_tx, mut control_rx, .. } = link;
     let (machine, mut current) = match hello {
-        Control::Hello { machine, monitors } => (machine.clone(), monitors.clone()),
+        Control::Hello { machine, monitors, .. } => (machine.clone(), monitors.clone()),
         _ => (String::new(), Vec::new()),
     };
     platform.set_monitors(&current);
@@ -191,7 +191,7 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
                 // Lista vazia é estado passageiro durante a reconfiguração do sistema.
                 let now = platform.monitors();
                 if !now.is_empty() && now != current {
-                    if write_control(&mut control_tx, &Control::Hello { machine: machine.clone(), monitors: now.clone() }).await.is_err() { break; }
+                    if write_control(&mut control_tx, &Control::Hello { machine: machine.clone(), monitors: now.clone(), version: Some(mousex_core::proto::VERSION.into()) }).await.is_err() { break; }
                     platform.set_monitors(&now);
                     current = now;
                 }
@@ -293,6 +293,7 @@ mod tests {
         Control::Hello {
             machine: "win2".into(),
             monitors: vec![MonitorInfo { id: "d1".into(), x: 0, y: 0, width: 1920, height: 1080, scale: 1.0 }],
+            version: Some(mousex_core::proto::VERSION.into()),
         }
     }
 
@@ -370,7 +371,14 @@ mod tests {
             .await
             .expect("sem hello novo")
             .expect("leitura");
-        assert_eq!(message, Control::Hello { machine: "win2".into(), monitors: moved });
+        assert_eq!(
+            message,
+            Control::Hello {
+                machine: "win2".into(),
+                monitors: moved,
+                version: Some(mousex_core::proto::VERSION.into())
+            }
+        );
         wait_for(&fake, "monitores -1080").await;
     }
 

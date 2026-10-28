@@ -56,7 +56,8 @@ pub enum TrayCommand {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TrayStatus {
-    pub machines: Vec<(String, bool)>,
+    /// Máquinas da esquerda para a direita (numeração dos atalhos), se estão conectadas e a versão do MouseX delas.
+    pub machines: Vec<(String, bool, Option<String>)>,
     pub active: bool,
     pub paused: bool,
     pub locked: bool,
