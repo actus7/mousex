@@ -5,11 +5,14 @@ use super::{
 };
 use crate::config::data_dir;
 use mousex_core::{ScreenLayout, keymap, proto::MonitorInfo};
-use mousex_platform_linux::{Area, Captured, release_at, release_pending, set_holding, start_server_capture};
+use mousex_platform_linux::{
+    Area, Captured, release_at, release_pending, session_locked, set_holding, start_server_capture,
+};
 use std::{
     io,
     sync::{Mutex, mpsc},
     thread,
+    time::Duration,
 };
 
 pub use super::common::{Button, Event, Hotkey, TrayCommand, TrayStatus};
@@ -19,6 +22,13 @@ pub const EDITOR: &str = "mousex-editor";
 static ZONES: Mutex<Vec<MonitorInfo>> = Mutex::new(Vec::new());
 
 pub fn start_input() -> io::Result<(InputGuard, mpsc::Receiver<Event>)> {
+    // Restarted behind the lock screen (locking can end the capture): nobody can answer the permission there.
+    if session_locked() {
+        crate::log("screen locked: input capture starts after unlocking");
+        while session_locked() {
+            thread::sleep(Duration::from_secs(2));
+        }
+    }
     let capture = start_server_capture(data_dir().join("input-capture-token"), saved_neighbors())?;
     if let Ok(mut zones) = ZONES.lock() {
         *zones = capture

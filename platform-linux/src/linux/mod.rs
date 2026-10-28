@@ -6,7 +6,8 @@ mod identify;
 mod x11;
 
 pub use capture::{
-    Area, Captured, ServerCapture, Zone, release_at, release_pending, set_holding, set_neighbors, start_server_capture,
+    Area, Captured, ServerCapture, Zone, release_at, release_pending, session_locked, set_holding, set_neighbors,
+    start_server_capture,
 };
 
 pub use clipboard::{Clip, Clipboard, clipboard_seq};

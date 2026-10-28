@@ -1,7 +1,8 @@
 //! Local status window. The agent serves it on 127.0.0.1:41416; `mousex monitor` opens it.
 //! Nothing here injects input. It reads the config, the service, the activity file and the log. On a Linux
 //! main computer it also changes the layout, since the Windows screen editor does not run there: the side of
-//! the other computer (`POST /api/side`) and the screen editor at `/arrange` (`mousex arrange`).
+//! the other computer (`POST /api/side`) and the screen editor at `/arrange` (`mousex arrange`). On Linux it also
+//! restarts the service (`POST /api/restart`), and opening it starts a stopped MouseX (the app icon does that).
 
 #[cfg(target_os = "linux")]
 use crate::side::{Side, set_side};
@@ -36,6 +37,16 @@ pub fn open() -> Result<(), Box<dyn Error>> {
 /// Opens a page of the window in the browser; with no agent answering, this process serves it.
 pub fn open_at(path: &str) -> Result<(), Box<dyn Error>> {
     let url = format!("http://127.0.0.1:{PORT}{path}");
+    // The agent serves the window as soon as it starts. Serving it here would hold the port the agent needs.
+    #[cfg(target_os = "linux")]
+    if !listening() && crate::install::start_if_stopped() {
+        for _ in 0..50 {
+            if listening() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
     if listening() {
         open_browser(&url)?;
         println!("{url}");
@@ -159,6 +170,8 @@ fn linux_route(path: &str, head: &str, body: &[u8]) -> Option<(&'static str, Str
     let forbidden = || serde_json::json!({ "ok": false, "message": "forbidden" }).to_string();
     if path.starts_with("/api/side") {
         Some((JSON, side_request(head)))
+    } else if path.starts_with("/api/restart") {
+        Some((JSON, restart_request(local_post(head))))
     } else if path.starts_with("/api/layout") && head.starts_with("GET ") {
         Some((JSON, if local_host(head) { crate::arrange::layout_json() } else { forbidden() }))
     } else if path.starts_with("/api/layout") {
@@ -184,9 +197,43 @@ fn status_json() -> String {
     let log = std::fs::read_to_string(data_dir().join("mousex.log")).unwrap_or_default();
     let status = Status {
         sides: side_items(),
+        restart: can_restart(),
         ..build(config.as_ref(), &service_info(), activity::read().as_ref(), &log, lang())
     };
     serde_json::to_string(&status).unwrap_or_else(|_| "{}".into())
+}
+
+/// Linux with the service installed: the window has a Restart button (Start while stopped).
+#[cfg(target_os = "linux")]
+fn can_restart() -> bool {
+    crate::install::installed()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn can_restart() -> bool {
+    false
+}
+
+/// `POST /api/restart`, same rule as the side: from these pages or from outside a browser. Locking the screen
+/// can end GNOME's capture; a fresh start asks again to allow it.
+#[cfg(target_os = "linux")]
+fn restart_request(allowed: bool) -> String {
+    if !allowed {
+        return serde_json::json!({ "ok": false, "message": "forbidden" }).to_string();
+    }
+    crate::log("restart asked from the status window");
+    // The reply goes out first: systemd stops this very process.
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(300));
+        if let Err(error) = crate::install::restart_service() {
+            crate::log(&format!("restart failed: {error}"));
+        }
+    });
+    let message = lang().pick(
+        "Reiniciando. O GNOME vai pedir de novo para permitir o teclado e o mouse.",
+        "Restarting. GNOME asks again to allow the keyboard and mouse.",
+    );
+    serde_json::json!({ "ok": true, "message": message }).to_string()
 }
 
 struct ServiceInfo {
@@ -260,6 +307,7 @@ struct Status {
     labels: Labels,
     lines: Vec<LogLine>,
     sides: Vec<SideItem>,
+    restart: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -277,6 +325,7 @@ struct Labels {
     left: String,
     right: String,
     arrange: String,
+    restart: String,
 }
 
 #[derive(serde::Serialize)]
@@ -346,6 +395,7 @@ fn build(config: Option<&Config>, service: &ServiceInfo, live: Option<&Live>, lo
             left: lang.pick("Esquerda", "Left").into(),
             right: lang.pick("Direita", "Right").into(),
             arrange: lang.pick("Arrumar telas…", "Arrange screens…").into(),
+            restart: if stopped { lang.pick("Iniciar", "Start") } else { lang.pick("Reiniciar", "Restart") }.into(),
         },
         lines: lines[lines.len().saturating_sub(40)..]
             .iter()
@@ -355,6 +405,7 @@ fn build(config: Option<&Config>, service: &ServiceInfo, live: Option<&Live>, lo
             })
             .collect(),
         sides: Vec::new(),
+        restart: false,
     }
 }
 
@@ -634,6 +685,9 @@ const PAGE: &str = r##"<!DOCTYPE html>
   .pick button { font: inherit; font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: 999px; border: 1px solid #2a3140; background: #101218; color: #e8eaef; cursor: pointer; }
   .pick button[aria-pressed="true"] { background: #3dd68c; border-color: #3dd68c; color: #07301c; }
   .pick button:disabled { opacity: .55; cursor: default; }
+  .top { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #restart-msg { margin: 8px 0 0; }
+  #restart-msg:empty { display: none; }
   .link { color: #3dd68c; font-weight: 650; text-decoration: none; }
   .link:hover { text-decoration: underline; }
   .now p { margin: 0 0 8px; font-weight: 500; }
@@ -652,8 +706,12 @@ const PAGE: &str = r##"<!DOCTYPE html>
     <div>
       <p class="eyebrow"><img src="/icon.png" alt="" width="20" height="20">MouseX</p>
       <h1 id="headline">…</h1>
+      <p class="meta" id="restart-msg"></p>
     </div>
-    <span id="pill" class="pill">…</span>
+    <div class="top">
+      <span id="pill" class="pill">…</span>
+      <div class="pick"><button type="button" id="l-restart" hidden>Reiniciar</button></div>
+    </div>
   </header>
   <section class="grid">
     <article><span id="l-computer">Computador</span><strong id="machine">—</strong></article>
@@ -700,10 +758,11 @@ async function refresh() {
     $("input").textContent = data.input || "";
     $("path").textContent = data.log_path || "";
     const labels = data.labels || {};
-    for (const key of ["computer", "role", "service", "paired", "now", "log", "pointer", "input", "side", "side_note", "arrange"]) {
+    for (const key of ["computer", "role", "service", "paired", "now", "log", "pointer", "input", "side", "side_note", "arrange", "restart"]) {
       const node = $("l-" + key);
       if (node && labels[key]) node.textContent = labels[key];
     }
+    $("l-restart").hidden = !data.restart;
     renderSides(data);
     const list = $("log");
     const follow = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
@@ -762,6 +821,19 @@ async function chooseSide(item, side) {
   }
   sidesKey = "";
 }
+// Locking the screen can end the capture on GNOME: a restart brings it back (and asks again to allow it).
+async function restart() {
+  const button = $("l-restart");
+  button.disabled = true;
+  setTimeout(() => { button.disabled = false; }, 10000);
+  try {
+    const reply = await (await fetch("/api/restart", { method: "POST", cache: "no-store" })).json();
+    $("restart-msg").textContent = reply.message || "";
+  } catch (error) {
+    $("restart-msg").textContent = String(error);
+  }
+}
+$("l-restart").addEventListener("click", restart);
 refresh();
 setInterval(refresh, 1000);
 </script>
@@ -891,5 +963,28 @@ Host: evil.example:41416
             let body = side_request(req);
             assert!(body.contains("forbidden") && body.contains("false"), "{body}");
         }
+    }
+
+    // Only the refused path: an allowed one would restart this computer's real service.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn outro_site_nao_reinicia_o_mousex() {
+        for req in [
+            "POST /api/restart HTTP/1.1\r\nHost: 127.0.0.1:41416\r\nOrigin: http://evil.example\r\n\r\n",
+            "POST /api/restart HTTP/1.1\r\nHost: evil.example:41416\r\n\r\n",
+            "GET /api/restart HTTP/1.1\r\nHost: 127.0.0.1:41416\r\n\r\n",
+        ] {
+            let body = restart_request(local_post(req));
+            assert!(body.contains("forbidden") && body.contains("false"), "{body}");
+        }
+    }
+
+    #[test]
+    fn parado_o_botao_inicia_e_rodando_reinicia() {
+        let config = config(Role::Server, None);
+        let stopped = build(Some(&config), &service("inactive"), None, "", Lang::Pt);
+        assert_eq!(stopped.labels.restart, "Iniciar");
+        let running = build(Some(&config), &service("active"), None, "", Lang::Pt);
+        assert_eq!(running.labels.restart, "Reiniciar");
     }
 }
