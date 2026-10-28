@@ -247,14 +247,12 @@ async fn run(
             }
             Some(changed) = zones_changed.next() => {
                 if changed.zone_set().is_some_and(|id| id != zones_reply.zone_set()) {
-                    note(&events, "screens changed; restarting so pointer barriers match them");
-                    std::process::exit(1);
+                    restart(&events, "screens changed; restarting so pointer barriers match them");
                 }
             }
             Some(_) = disabled.next() => {
                 if quiet_until.is_none_or(|until| tokio::time::Instant::now() > until) {
-                    note(&events, "input capture was disabled; restarting");
-                    std::process::exit(1);
+                    restart(&events, "input capture was disabled; restarting");
                 }
             }
             Some(hit) = activated_stream.next() => {
@@ -295,8 +293,7 @@ async fn run(
                             }
                             tokio::time::sleep(Duration::from_millis(200)).await;
                             if let Err(error) = portal.enable(&session, Default::default()).await {
-                                note(&events, &format!("failed to re-enable input capture: {error}; restarting"));
-                                std::process::exit(1);
+                                restart(&events, &format!("failed to re-enable input capture: {error}; restarting"));
                             }
                         }
                         if let Some(next) = waiting.take() {
@@ -318,23 +315,23 @@ async fn run(
                                     note(&events, &format!("pointer barriers moved: {} screen edge(s)", armed.len()));
                                 }
                                 Err(error) => {
-                                    note(&events, &format!("could not move the pointer barriers: {error}; restarting"));
-                                    std::process::exit(1);
+                                    restart(&events, &format!("could not move the pointer barriers: {error}; restarting"));
                                 }
                             }
                         }
                     }
                 }
             }
+            // Without libei no key or motion arrives and nothing brings it back. Locking the screen can end it.
             event = ei_events.next() => {
                 match event {
                     Some(Ok(event)) => {
                         if let Err(error) = on_ei(&mut connection, &events, event, holding, &mut fraction) {
-                            note(&events, &format!("libei: {error}"));
+                            restart(&events, &format!("libei: {error}; restarting"));
                         }
                     }
-                    Some(Err(error)) => return Err(error.into()),
-                    None => return Err("the compositor closed the input capture connection".into()),
+                    Some(Err(error)) => restart(&events, &format!("libei: {error}; restarting")),
+                    None => restart(&events, "the compositor closed the input capture connection; restarting"),
                 }
             }
         }
@@ -343,6 +340,13 @@ async fn run(
 
 fn note(events: &std::sync::mpsc::Sender<Captured>, line: &str) {
     let _ = events.send(Captured::Note(line.to_string()));
+}
+
+/// systemd starts a fresh agent (Restart=always). The pause lets the line reach the log before the exit.
+fn restart(events: &std::sync::mpsc::Sender<Captured>, line: &str) -> ! {
+    note(events, line);
+    std::thread::sleep(Duration::from_millis(200));
+    std::process::exit(1);
 }
 
 async fn open_session(
@@ -549,7 +553,8 @@ fn wheel_delta(value: i32) -> i16 {
     scaled.clamp(i16::MIN as i32, i16::MAX as i32) as i16
 }
 
-fn session_locked() -> bool {
+/// logind's LockedHint. `gdbus` can take seconds: never in a loop that forwards input.
+pub fn session_locked() -> bool {
     let output = std::process::Command::new("gdbus")
         .args([
             "call",
