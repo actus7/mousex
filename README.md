@@ -98,7 +98,7 @@ A Linux computer can also be the **main computer**, the one whose keyboard and m
 3. Install the other computers as usual and confirm the pairing code on both screens.
 4. A new computer starts on the **right** of your screens. To put it on the left, run `~/.local/share/mousex/bin/mousex side left` (and `side right` to go back). To place the screens freely, open the screen editor with `~/.local/share/mousex/bin/mousex arrange`. Both apply right away.
 
-The default Linux build has no tray icon. Instead, `mousex monitor` opens a status window in the browser: state, pointer, last input, the log, the side of the other computer and a link to **Arrange screens…**. Your Linux screens keep the arrangement from the system settings; in the editor you move the other computers' screens around them.
+The default Linux build has no tray icon. Instead, **MouseX** is in the applications menu: opening it starts MouseX if it is stopped and shows a status window in the browser (the same as `mousex monitor`), with the state, pointer, last input, the log, the side of the other computer, a link to **Arrange screens…** and a **Restart** button. Your Linux screens keep the arrangement from the system settings; in the editor you move the other computers' screens around them.
 
 > **Install the main computer first** (Windows or Linux), then the others. Each new machine asks for pairing once. After that, it is remembered.
 
@@ -249,7 +249,7 @@ Brazilian ABNT2 keyboards work best with a Mac set to the **Brazilian – ABNT2*
 MouseX detects monitor changes live. Open **Arrange screens…** from the tray to adjust the layout. You can drag the main computer's screens too: on save, Windows is rearranged to match, so there is no need to repeat the arrangement in Windows Settings. On a Linux main computer, run `mousex arrange` (or use **Arrange screens…** in `mousex monitor`); there the Linux screens follow the system settings and you move the other computers' screens around them.
 
 **Linux main computer: the cursor does not cross to the other computer.**
-Open `mousex monitor`. The log says how many screen edges capture the cursor ("pointer barriers on 1 screen edge(s)"): only edges that touch another computer do, so the others stay free for the desktop (a dock that hides at the bottom, hot corners). A new computer starts on the right: if it sits on your left, run `mousex side left` or move it in `mousex arrange`. Screens only connect where their edges touch. Also check that you allowed capturing the keyboard and mouse when MouseX started.
+Open `mousex monitor`. The log says how many screen edges capture the cursor ("pointer barriers on 1 screen edge(s)"): only edges that touch another computer do, so the others stay free for the desktop (a dock that hides at the bottom, hot corners). A new computer starts on the right: if it sits on your left, run `mousex side left` or move it in `mousex arrange`. Screens only connect where their edges touch. Also check that you allowed capturing the keyboard and mouse when MouseX started. If it stopped after you locked the screen: when the capture ends, MouseX restarts by itself, and after you unlock GNOME asks again to allow it. The **Restart** button in the status window does the same right away.
 
 **Where are the logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`

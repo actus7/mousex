@@ -98,7 +98,7 @@ Um computador Linux também pode ser o **computador principal**, o do teclado e 
 3. Instale os outros computadores como sempre e confirme o código de pareamento nas duas telas.
 4. Um computador novo entra à **direita** das suas telas. Para pôr à esquerda, rode `~/.local/share/mousex/bin/mousex side left` (e `side right` para voltar). Para posicionar as telas livremente, abra o editor de telas com `~/.local/share/mousex/bin/mousex arrange`. Os dois valem na hora.
 
-O Linux, na versão padrão, não tem ícone na bandeja. No lugar dele, `mousex monitor` abre uma janela de status no navegador: estado, ponteiro, última entrada, o log, o lado do outro computador e um link para **Arrumar telas…**. As telas do Linux seguem a arrumação das configurações do sistema; no editor você move as telas dos outros computadores em volta delas.
+O Linux, na versão padrão, não tem ícone na bandeja. No lugar dele, o **MouseX** fica no menu de aplicativos: abrir liga o MouseX, se estiver parado, e mostra uma janela de status no navegador (a mesma do `mousex monitor`), com o estado, o ponteiro, a última entrada, o log, o lado do outro computador, um link para **Arrumar telas…** e o botão **Reiniciar**. As telas do Linux seguem a arrumação das configurações do sistema; no editor você move as telas dos outros computadores em volta delas.
 
 > **Instale primeiro o computador principal** (Windows ou Linux), depois os outros. Cada máquina nova pede o pareamento uma vez. Depois disso, ela fica lembrada.
 
@@ -249,7 +249,7 @@ Teclados ABNT2 funcionam melhor com o Mac configurado para o layout **Português
 O MouseX detecta mudanças de monitor em tempo real. Abra **Arrumar telas…** no menu da bandeja para ajustar o layout. Você também pode arrastar as telas do computador principal: ao salvar, o Windows é rearrumado igual, sem precisar repetir a arrumação nas Configurações. Num computador principal Linux, rode `mousex arrange` (ou use **Arrumar telas…** no `mousex monitor`); lá as telas do Linux seguem as configurações do sistema e você move as telas dos outros computadores em volta delas.
 
 **Computador principal Linux: o cursor não passa para o outro computador.**
-Abra o `mousex monitor`. O log diz quantas bordas de tela capturam o cursor ("pointer barriers on 1 screen edge(s)"): só as que encostam noutro computador, e as outras ficam livres para a área de trabalho (um dock que se esconde embaixo, cantos ativos). Um computador novo entra à direita: se ele fica à sua esquerda, rode `mousex side left` ou mova no `mousex arrange`. As telas só se ligam onde as bordas se encostam. Confira também se você permitiu a captura do teclado e do mouse quando o MouseX iniciou.
+Abra o `mousex monitor`. O log diz quantas bordas de tela capturam o cursor ("pointer barriers on 1 screen edge(s)"): só as que encostam noutro computador, e as outras ficam livres para a área de trabalho (um dock que se esconde embaixo, cantos ativos). Um computador novo entra à direita: se ele fica à sua esquerda, rode `mousex side left` ou mova no `mousex arrange`. As telas só se ligam onde as bordas se encostam. Confira também se você permitiu a captura do teclado e do mouse quando o MouseX iniciou. Se parou depois de bloquear a tela: quando a captura cai, o MouseX reinicia sozinho e, ao desbloquear, o GNOME pede de novo para permitir. O botão **Reiniciar** da janela de status faz o mesmo na hora.
 
 **Onde ficam os logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`

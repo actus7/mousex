@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Linux: MouseX is in the applications menu. Opening it starts MouseX if it is stopped and shows the status window; right-click it for **Restart** and, on the main computer, **Arrange screens**. The status window has a **Restart** button (**Start** while stopped).
+
 ### Fixed
 
 - Linux main computer: after the screen was locked the cursor could stop crossing until MouseX was restarted by hand. When libei or the capture ends, the agent now restarts by itself; behind the lock screen it waits for the unlock before asking again to allow the capture.
