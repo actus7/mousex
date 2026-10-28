@@ -458,10 +458,15 @@ impl State {
                 }
                 Some(_) => self.relay.copied(clip, &from, None),
             },
-            Msg::HomeCopied { to, clip } => {
+            // Leitura lenta: o cursor pode já estar em outro remoto, e uma cópia remota mais nova vence.
+            Msg::HomeCopied { to, clip } if self.relay.is_empty() => {
                 let home = self.home.clone();
                 self.relay.copied(clip, &home, Some(&to));
+                if let Some(remote) = self.remote.clone() {
+                    self.deliver_relay(&remote);
+                }
             }
+            Msg::HomeCopied { .. } => {}
         }
     }
 

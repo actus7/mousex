@@ -568,6 +568,10 @@ impl Relay {
         self.0 = None;
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
     /// A cópia que `machine` ainda não tem; a partir daqui ela conta como entregue.
     pub fn pending_for(&mut self, machine: &str) -> Option<Clip> {
         let (clip, holders) = self.0.as_mut()?;
@@ -596,6 +600,7 @@ mod relay_tests {
         relay.copied(Clip::Text("nova".into()), "mac", Some("win2"));
         assert_eq!(relay.pending_for("casa"), Some(Clip::Text("nova".into())));
         relay.clear();
+        assert!(relay.is_empty());
         assert_eq!(relay.pending_for("linux"), None);
     }
 }
