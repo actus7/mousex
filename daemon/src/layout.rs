@@ -140,6 +140,7 @@ fn connected(monitors: &[&Monitor]) -> bool {
 /// Monitores desconhecidos da máquina entram à direita do layout, preservando o arranjo entre eles.
 /// Os conhecidos ficam onde o usuário pôs, com o tamanho da resolução atual (e o "tamanho na mesa" dele).
 pub fn merge_monitors(layout: &ScreenLayout, machine: &str, monitors: &[MonitorInfo]) -> ScreenLayout {
+    let layout = &adopt_renumbered(layout, machine, monitors);
     let current =
         |m: &Monitor| monitors.iter().find(|info| m.machine == machine && global_id(machine, &info.id) == m.id);
     let mut resized = layout.monitores.clone();
@@ -167,6 +168,31 @@ pub fn merge_monitors(layout: &ScreenLayout, machine: &str, monitors: &[MonitorI
         monitor(machine, info, x, y)
     });
     ScreenLayout { monitores: layout.monitores.iter().cloned().chain(placed).collect() }
+}
+
+/// Tela renumerada: macOS e Windows dão id novo à mesma tela quando ela reconecta (cabo/adaptador que
+/// oscila, boot). A tela de id novo herda o lugar de uma que a máquina não informa mais, de preferência
+/// a de mesmo tamanho, em vez de entrar duplicada à direita.
+fn adopt_renumbered(layout: &ScreenLayout, machine: &str, monitors: &[MonitorInfo]) -> ScreenLayout {
+    let reported = |m: &Monitor| monitors.iter().any(|info| global_id(machine, &info.id) == m.id);
+    let mut stale: Vec<usize> = (0..layout.monitores.len())
+        .filter(|&i| layout.monitores[i].machine == machine && !reported(&layout.monitores[i]))
+        .collect();
+    let mut out = layout.monitores.clone();
+    let new = monitors.iter().filter(|info| !layout.monitores.iter().any(|m| m.id == global_id(machine, &info.id)));
+    for info in new {
+        let same_size = |&i: &usize| {
+            let m = &out[i];
+            let size = |v: i32| (v as f64 * m.scale_fator).round() as i32;
+            (m.width, m.height) == (size(info.width), size(info.height))
+        };
+        let Some(pos) = stale.iter().position(same_size).or((!stale.is_empty()).then_some(0)) else {
+            break;
+        };
+        let i = stale.remove(pos);
+        out[i].id = global_id(machine, &info.id);
+    }
+    ScreenLayout { monitores: out }
 }
 
 /// Acrescenta a máquina só se o resultado for um layout válido: layout inválido desliga todas as transições.
@@ -391,6 +417,21 @@ mod tests {
         let now = vec![("mac".to_string(), vec![info("2", 0, 2560, 1440, 1.0)])];
         let ids: Vec<String> = connected_view(&layout, "home", &now).monitores.into_iter().map(|m| m.id).collect();
         assert_eq!(ids, ["home:a", "mac:2"]);
+    }
+
+    #[test]
+    fn tela_renumerada_herda_o_lugar_da_antiga_em_vez_de_duplicar() {
+        // Cabo USB-C/HDMI que oscila: a cada religada o Mac dá um id novo à mesma tela externa.
+        let layout = ensure_home(&ScreenLayout { monitores: vec![] }, "home", &[info("a", 0, 1920, 1080, 1.0)]);
+        let mut layout =
+            merge_monitors(&layout, "mac", &[info("1", 0, 1440, 900, 1.0), info("3", 1440, 2560, 1440, 1.0)]);
+        let ext = layout.monitores.iter_mut().find(|m| m.id == "mac:3").expect("externa");
+        (ext.x, ext.y) = (-2560, -360);
+        let layout = merge_monitors(&layout, "mac", &[info("1", 0, 1440, 900, 1.0), info("7", 1440, 2560, 1440, 1.0)]);
+        let ids: Vec<&str> = layout.monitores.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["home:a", "mac:1", "mac:7"]);
+        let ext = layout.monitores.iter().find(|m| m.id == "mac:7").expect("externa");
+        assert_eq!((ext.x, ext.y), (-2560, -360), "fica onde o usuário pôs");
     }
 
     #[test]
