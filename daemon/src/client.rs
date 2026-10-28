@@ -18,7 +18,7 @@ const STABLE_SESSION: Duration = Duration::from_secs(5);
 /// Intervalo para notar telas rearranjadas, plugadas ou desplugadas com o serviço rodando.
 const MONITOR_POLL: Duration = Duration::from_secs(2);
 /// Depois de um pareamento recusado, espera antes de incomodar o servidor de novo.
-const REJECTED_WAIT: Duration = Duration::from_secs(30);
+pub(crate) const REJECTED_WAIT: Duration = Duration::from_secs(30);
 /// Código de fechamento QUIC do servidor para "pareamento recusado".
 pub const REJECTED: u32 = 2;
 

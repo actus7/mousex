@@ -93,7 +93,7 @@ fn download_and_verify(tag: &str, work: &Path) -> Result<(), Box<dyn Error>> {
 
 /// Troca cada binário guardando o anterior em `.old`; o novo precisa abrir e dizer a versão certa.
 fn replace(bin: &Path, package: &Path, tag: &str) -> Result<(), Box<dyn Error>> {
-    stop_agent();
+    stop_agent()?;
     let names: Vec<&str> = FILES.iter().copied().filter(|name| package.join(name).exists()).collect();
     let (moved, swapped) = swap(bin, package, &names);
     let healthy = swapped.map_err(Box::<dyn Error>::from).and_then(|()| {
@@ -173,13 +173,21 @@ fn bin_dir() -> Result<PathBuf, Box<dyn Error>> {
 }
 
 #[cfg(windows)]
-fn stop_agent() {
+fn stop_agent() -> Result<(), Box<dyn Error>> {
     let _ = run("schtasks", &["/End", "/TN", crate::install::TASK]);
+    crate::logon_windows::stop_service()?;
+    Ok(())
 }
 
 /// Sem ninguém logado a tarefa não sobe agora; ela sobe sozinha no próximo logon.
 #[cfg(windows)]
 fn start_agent() {
+    if Config::load(&data_dir()).is_some_and(|c| c.role == crate::config::Role::Client)
+        && let Ok(bin) = bin_dir()
+        && let Err(error) = crate::logon_windows::install_service(&bin.join("mousex-agent.exe"))
+    {
+        log(&format!("update: logon service could not restart: {error}"));
+    }
     let _ = run("schtasks", &["/Run", "/TN", crate::install::TASK]);
 }
 
@@ -224,7 +232,9 @@ fn bin_dir() -> Result<PathBuf, Box<dyn Error>> {
 
 /// No Mac e no Linux o agente é quem chamou o update: ele só reinicia no fim.
 #[cfg(not(windows))]
-fn stop_agent() {}
+fn stop_agent() -> Result<(), Box<dyn Error>> {
+    Ok(())
+}
 
 #[cfg(target_os = "macos")]
 fn start_agent() {

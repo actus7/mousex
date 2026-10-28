@@ -90,12 +90,28 @@ pub async fn find(fingerprint: &str, cache_path: &Path, timeout: Duration) -> Op
     find_with(fingerprint, cache_path, timeout, BROADCAST_PORT, true).await
 }
 
+/// Auxiliar SYSTEM: consulta o cache existente sem gravar endereços vindos da rede.
+pub async fn find_read_only(fingerprint: &str, cache_path: &Path, timeout: Duration) -> Option<SocketAddr> {
+    find_cached(fingerprint, cache_path, timeout, BROADCAST_PORT, true, false).await
+}
+
 pub(crate) async fn find_with(
     fingerprint: &str,
     cache_path: &Path,
     timeout: Duration,
     broadcast_port: u16,
     use_mdns: bool,
+) -> Option<SocketAddr> {
+    find_cached(fingerprint, cache_path, timeout, broadcast_port, use_mdns, true).await
+}
+
+async fn find_cached(
+    fingerprint: &str,
+    cache_path: &Path,
+    timeout: Duration,
+    broadcast_port: u16,
+    use_mdns: bool,
+    save_cache: bool,
 ) -> Option<SocketAddr> {
     let discovered = tokio::time::timeout(timeout, async {
         tokio::select! {
@@ -109,7 +125,7 @@ pub(crate) async fn find_with(
     .flatten();
     match discovered {
         Some(address) => {
-            if fingerprint != ANY {
+            if save_cache && fingerprint != ANY {
                 let _ = write_cache(cache_path, fingerprint, address);
             }
             Some(address)
@@ -195,6 +211,21 @@ mod tests {
 
     fn temp_cache() -> std::path::PathBuf {
         std::env::temp_dir().join(format!("mousex-cache-{}.json", rand::random::<u64>()))
+    }
+
+    #[tokio::test]
+    async fn descoberta_de_login_nao_grava_cache() {
+        let port = 47000 + (rand::random::<u16>() % 1000);
+        let cache = temp_cache();
+        let _responder = respond_broadcast("aaa".into(), 41414, port).expect("responder");
+        let found = find_cached("aaa", &cache, Duration::from_millis(500), port, false, false).await;
+        assert!(found.is_some());
+        assert!(!cache.exists(), "auxiliar não grava dados vindos da rede");
+        let old: SocketAddr = "192.168.0.2:41414".parse().expect("endereço");
+        write_cache(&cache, "aaa", old).expect("cache");
+        assert!(find_cached("aaa", &cache, Duration::from_millis(500), port, false, false).await.is_some());
+        assert_eq!(read_cache(&cache, "aaa"), Some(old));
+        std::fs::remove_file(cache).expect("limpeza");
     }
 
     #[tokio::test]

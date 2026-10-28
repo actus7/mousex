@@ -39,21 +39,31 @@ Platform-specific code is isolated behind traits. The daemon has a `Platform` tr
 
 ```mermaid
 flowchart LR
+    boot(["Windows boots"]) --> service["Client only: MouseX Logon<br/>LocalSystem service, auto-start"]
+    service --> helper["mousex-agent.exe --logon<br/>active console, Winlogon desktop"]
+    helper --> input["Dedicated input thread<br/>current input desktop, no windows/hooks"]
     logon(["User logs on"]) --> task["Scheduled task 'MouseX'<br/>runs elevated, at logon"]
     task --> agent["mousex-agent.exe<br/>no window"]
     agent --> net["QUIC endpoint<br/>UDP 41414"]
     agent --> disc["Discovery<br/>UDP 41415 and mDNS"]
     agent --> hook["Low-level hook thread<br/>keyboard and mouse"]
     agent --> tray["Tray thread<br/>icon, menu, session events"]
+    agent -- "secure desktop: local input pipe" --> helper
     tray -. "opens" .-> editor["mousex-editor.exe<br/>only while open"]
 ```
 
 - **Scheduled task `MouseX`.** Created by the installer. It runs `mousex-agent.exe` at every logon with elevated rights. Those rights let the agent inject input into elevated windows and write to `ProgramData`.
+- **Service `MouseX Logon` (clients only).** The installer creates an automatic LocalSystem service running `mousex-agent.exe --service`. The SCM dispatcher accepts stop, shutdown and session-change events. The service duplicates its token, sets the active console session ID and starts one `--logon` helper on `winsta0\winlogon`. A kill-on-close job prevents orphan helpers. Console changes replace the helper; exits restart it with backoff up to 30 s. SCM recovery also restarts the service after failure.
+- **Login helper.** Uses the installed identity and pinned server in `ProgramData\MouseX`, with the same TLS and pairing authorization. Pairing must first be completed in the normal user session; the helper never opens pairing dialogs or creates an identity. It connects only while the protected `Global\MouseXAgent` marker is absent, checking every 100 ms. The normal client worker holds that marker for its lifetime. A handoff closes the helper's connection and releases held input; on the server, a newer connection replaces and closes the previous one, and stale disconnects/monitor updates cannot remove or change its replacement.
+- **Secure-desktop input.** The normal client remains connected while locked. It detects a protected input desktop (or an injection failure) and forwards only fixed-size validated input packets to `\\.\pipe\MouseXLogon-<session>`. The pipe rejects remote connections and grants access only to SYSTEM and Administrators; the sender also verifies that the pipe server runs as SYSTEM and forbids impersonation. The helper's dedicated injection thread attaches to the current input desktop with `OpenInputDesktop`/`SetThreadDesktop` before injecting. This thread owns no windows or hooks. Pipe disconnects, leaving a screen and network handoffs release held keys/buttons.
+- **SYSTEM boundary.** The helper accepts only keys, mouse motion/buttons, wheel and input release, and reports monitors. It rejects clipboard/file streams without reading them and never opens network-supplied paths, creates tray/transfer/identify windows, starts the monitor HTTP server or changes the lock state. Identity and discovery cache reads do not modify files. The ordinary elevated agent retains its existing clipboard impersonation behavior. `ponytail:` Ctrl+Alt+Del is consumed by the main Windows computer and is not forwarded; there is no SendSAS integration.
 - **Hook thread.** Captures keyboard and mouse events. It forwards them through a channel and returns at once, so input is never delayed.
 - **Tray thread.** Shows the machine list with connection status, the menu, and the grey icon when nothing is connected. It also listens for session lock events (Win+L).
 - **Editor.** Started from the tray menu. It is not a background service.
 
 The `mousex.exe` CLI is the same program. It runs `install`, `uninstall`, and `status`, and it has a dialog for choosing the role.
+
+Login-screen validation requires an already-paired client notebook: reboot to the Windows login screen and type using the main computer, sign in and check that only one connection remains, then use Win+L and unlock remotely. Also check held-key release after disconnect and helper restart, clipboard/file transfer in the normal session, and service stop/restart around an update. These checks must run on the client, not the main computer. Builds and unit tests alone do not prove Winlogon injection.
 
 ### macOS
 
@@ -259,13 +269,15 @@ The log file is `mousex.log`. Use the tray's **Open log** item, or `mousex statu
 |---|---|---|---|
 | Admin rights | Yes (UAC) | No | No |
 | Binaries | Copied to `C:\Program Files\MouseX` | Copied to `~/Library/Application Support/mousex/bin` | Copied to `~/.local/share/mousex/bin` |
-| Autostart | Scheduled task `MouseX`, at logon, elevated | LaunchAgent `com.mousex.agent` | Autostart entry `mousex.desktop` starting the systemd user service `mousex.service` |
+| Autostart | Scheduled task `MouseX`, at logon, elevated; clients also have the LocalSystem `MouseX Logon` service at boot | LaunchAgent `com.mousex.agent` | Autostart entry `mousex.desktop` starting the systemd user service `mousex.service` |
 | Firewall | Rule `MouseX`, UDP 41414 and 41415, remote `localsubnet` | Not applicable | Not changed (most desktop distributions allow outgoing UDP) |
 | Permission | None extra | Accessibility for `mousex-agent` | Wayland only: remote control, asked once by the desktop |
 | Update | Task `MouseX Update` as SYSTEM, every 30 min and 10 min after boot; the agent re-creates it at start | The agent runs `mousex update` 10 min after start, then every 30 min | Same as macOS; the agent restarts through systemd |
 | Uninstall | Settings → Apps, or `mousex uninstall` | `mousex uninstall` | `mousex uninstall` |
 
 Updates keep pairings, the layout, and the identity, so already-paired machines reconnect without a new code. `mousex update` finds the newest tag through the `/releases/latest` redirect, downloads the package, `SHA256SUMS` and `SHA256SUMS.sig` with the system `curl`, checks the Ed25519 signature (tag + sums) and the hash, unpacks with the system `tar`, swaps each binary keeping a `.old` copy, and runs `mousex version` on the new one. If that fails the `.old` files come back. On macOS the new binaries are re-signed with the local identity before the agent restarts.
+
+On Windows, installation and updates stop `MouseX Logon` and wait for its helper to exit before replacing binaries, then start it again for clients, including after rollback. Reinstalling updates the existing service; switching to the server role or uninstalling removes it. An installed client agent also ensures the service exists on startup, so an update performed by an older updater can migrate to boot-time control.
 
 ### Self-recovery
 

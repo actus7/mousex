@@ -9,6 +9,12 @@ pub(crate) mod client_tray;
 pub(crate) mod clip;
 pub(crate) mod config;
 pub(crate) mod link_status;
+#[cfg(windows)]
+mod logon;
+#[cfg(any(windows, test))]
+mod logon_protocol;
+#[cfg(windows)]
+mod logon_windows;
 // Só o servidor (Windows) arruma as telas.
 #[cfg(windows)]
 pub(crate) mod install;
@@ -120,10 +126,29 @@ pub fn cli_main() {
 
 /// `mousex-agent.exe`: o serviço em segundo plano iniciado pela tarefa no logon, sem janela.
 pub fn agent_main() {
+    #[cfg(windows)]
+    match std::env::args().nth(1).as_deref() {
+        Some("--service") => {
+            if let Err(error) = logon_windows::service() {
+                log(&format!("logon service: {error}"));
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some("--logon") => {
+            if let Err(error) = logon::run() {
+                log(&format!("logon helper: {error}"));
+                std::process::exit(1);
+            }
+            return;
+        }
+        _ => {}
+    }
     // A tarefa inicia o vigia; ele inicia o agente de verdade com `worker` e o religa se cair.
     #[cfg(windows)]
     if std::env::args().nth(1).as_deref() != Some(supervisor::WORKER) {
         install::refresh_update_task();
+        install::refresh_logon_service();
         install::enable_print_screen_capture();
         return supervisor::supervise();
     }
@@ -173,6 +198,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     activity::enable();
     let dir = data_dir();
     let config = Config::load(&dir).ok_or("configuração ausente; rode mousex install")?;
+    #[cfg(windows)]
+    let _presence = if config.role == Role::Client { Some(logon_windows::announce_agent()?) } else { None };
     let identity = DeviceIdentity::load_or_create(&dir)?;
     // Dois workers bastam: o trabalho é pequeno e menos threads é menos memória.
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;

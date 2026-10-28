@@ -210,6 +210,21 @@ pub(crate) fn refresh_update_task() {
     }
 }
 
+/// Agente novo após um update antigo também instala o serviço do cliente, sem mudar o papel do PC.
+pub(crate) fn refresh_logon_service() {
+    let Ok(dir) = install_dir() else {
+        return;
+    };
+    if !std::env::current_exe().is_ok_and(|exe| exe == dir.join(AGENT)) {
+        return;
+    }
+    if Config::load(&data_dir()).is_some_and(|c| c.role == Role::Client)
+        && let Err(error) = crate::logon_windows::install_service(&dir.join(AGENT))
+    {
+        crate::log(&format!("logon service could not be refreshed: {error}"));
+    }
+}
+
 /// Print Screen abre a captura de tela do Windows, como o Print abre o recorte no Mac. Só quando o usuário
 /// nunca escolheu: um 0 gravado por ele fica como está.
 pub(crate) fn enable_print_screen_capture() {
@@ -347,6 +362,7 @@ pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
     for task in [TASK, LEGACY_NAME] {
         let _ = command("schtasks", &["/End", "/TN", task]);
     }
+    crate::logon_windows::stop_service()?;
     let _ = command("schtasks", &["/Delete", "/TN", LEGACY_NAME, "/F"]);
     let source_dir = std::env::current_exe()?.parent().map(Path::to_path_buf).ok_or("executable folder unavailable")?;
     for name in [CLI, AGENT, EDITOR, EDITOR_DLL] {
@@ -415,6 +431,11 @@ pub fn install(args: &[String]) -> Result<(), Box<dyn Error>> {
             "enable=yes",
         ],
     )?;
+    if role == Role::Client {
+        crate::logon_windows::install_service(&exe)?;
+    } else {
+        crate::logon_windows::remove_service()?;
+    }
     command("schtasks", &["/Run", "/TN", TASK])?;
     let _ = command("netsh", &["advfirewall", "firewall", "delete", "rule", &format!("name={LEGACY_NAME}")]);
     // O agente antigo leva alguns instantes para sair e soltar o executável.
@@ -448,6 +469,7 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let _ = command("schtasks", &["/End", "/TN", TASK]);
+    crate::logon_windows::remove_service()?;
     let _ = command("schtasks", &["/Delete", "/TN", TASK, "/F"]);
     let _ = command("schtasks", &["/Delete", "/TN", UPDATE_TASK, "/F"]);
     let _ = command("netsh", &["advfirewall", "firewall", "delete", "rule", &format!("name={FIREWALL_RULE}")]);

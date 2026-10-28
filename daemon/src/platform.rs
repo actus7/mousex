@@ -1,7 +1,8 @@
 //! Plataforma Windows real: injeção via SendInput, monitores e clipboard Win32.
 use crate::client::{Platform, numbered};
 use crate::clip::Clip;
-use mousex_core::{keymap, proto::MonitorInfo};
+use crate::{logon_protocol::Input, logon_windows};
+use mousex_core::proto::MonitorInfo;
 use mousex_native::{Button, Event, IdentifyScreen, Injector};
 
 // O servidor tem a própria cópia; esta só confere a ida e volta nos testes.
@@ -47,6 +48,8 @@ pub struct WinPlatform {
     injector: Injector,
     /// Origem de cada monitor, na mesma ordem do Hello enviado.
     origins: Vec<(i32, i32)>,
+    forwarder: logon_windows::Forwarder,
+    forwarding: bool,
 }
 
 impl WinPlatform {
@@ -65,42 +68,54 @@ impl WinPlatform {
         ] {
             let _ = injector.send(Event::Key { scancode, extended, down: false });
         }
-        Self { injector, origins: monitors.iter().map(|m| (m.x, m.y)).collect() }
+        Self {
+            injector,
+            origins: monitors.iter().map(|m| (m.x, m.y)).collect(),
+            forwarder: logon_windows::Forwarder::new(),
+            forwarding: false,
+        }
+    }
+
+    fn send(&mut self, input: Input) {
+        if logon_windows::secure_desktop() {
+            self.forwarder.send(input);
+            self.forwarding = true;
+        } else {
+            if self.forwarding {
+                self.forwarder.send(Input::Release);
+                let _ = self.injector.release_all();
+                self.forwarding = false;
+            }
+            if logon_windows::inject(&mut self.injector, input).is_err() && logon_windows::secure_desktop() {
+                self.forwarder.send(input);
+                self.forwarding = true;
+            }
+        }
     }
 }
 
-// Falhas de injeção (UIPI, desktop seguro) são ignoradas: nada a fazer além de não travar.
 impl Platform for WinPlatform {
     fn key(&mut self, hid: u16, down: bool) {
-        if let Some((scancode, extended)) = keymap::hid_to_win_scancode(hid) {
-            let _ = self.injector.send(Event::Key { scancode, extended, down });
-        }
+        self.send(Input::Key { hid, down });
     }
 
     fn move_to(&mut self, monitor: usize, x: i32, y: i32) {
         if let Some(&(ox, oy)) = self.origins.get(monitor) {
-            let _ = self.injector.send(Event::Move { x: ox + x, y: oy + y });
+            self.send(Input::Move { x: ox.saturating_add(x), y: oy.saturating_add(y) });
         }
     }
 
     fn button(&mut self, button: u8, down: bool) {
-        if let Some(button) = button_from_u8(button) {
-            let _ = self.injector.send(Event::Button { button, down });
-        }
+        self.send(Input::Button { button, down });
     }
 
     fn wheel(&mut self, dx: i32, dy: i32) {
-        let clamp = |v: i32| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
-        if dy != 0 {
-            let _ = self.injector.send(Event::Wheel { delta: clamp(dy), horizontal: false });
-        }
-        if dx != 0 {
-            let _ = self.injector.send(Event::Wheel { delta: clamp(dx), horizontal: true });
-        }
+        self.send(Input::Wheel { dx: dx.clamp(-32768, 32767), dy: dy.clamp(-32768, 32767) });
     }
 
     fn release_all(&mut self) {
         let _ = self.injector.release_all();
+        self.forwarder.send(Input::Release);
     }
 
     fn clipboard_seq(&self) -> u32 {

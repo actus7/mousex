@@ -46,8 +46,15 @@ impl DeviceIdentity {
                 .ok_or_else(|| IdentityError::Invalid("identidade persistida inválida; use reset explícito".into()))?;
         }
         restrict(&key_path, false)?;
-        let private_key = fs::read(key_path)?;
-        let certificate = fs::read(cert_path)?;
+        Self::load(directory)
+    }
+
+    /// Leitura sem criação nem alteração de ACLs (auxiliar de login).
+    pub fn load(directory: &Path) -> Result<Self, IdentityError> {
+        let private_key = fs::read(directory.join("identity.pk8"))?;
+        let certificate = fs::read(directory.join("identity.der"))?;
+        valid_pair(&private_key, &certificate)
+            .ok_or_else(|| IdentityError::Invalid("identidade persistida inválida; use reset explícito".into()))?;
         Ok(Self { fingerprint: fingerprint(&certificate), certificate, private_key })
     }
 
@@ -155,6 +162,21 @@ fn elevated() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn leitura_nao_cria_nem_repara_identidade() -> Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::temp_dir().join(format!("mousex-readonly-{}", rand::random::<u64>()));
+        assert!(DeviceIdentity::load(&path).is_err());
+        assert!(!path.exists());
+        let installed = DeviceIdentity::load_or_create(&path)?;
+        let loaded = DeviceIdentity::load(&path)?;
+        assert_eq!(installed.fingerprint, loaded.fingerprint);
+        fs::write(path.join("identity.der"), b"invalid")?;
+        assert!(matches!(DeviceIdentity::load(&path), Err(IdentityError::Invalid(_))));
+        assert_eq!(fs::read(path.join("identity.der"))?, b"invalid");
+        fs::remove_dir_all(path)?;
+        Ok(())
+    }
 
     #[test]
     fn corrupted_certificate_is_rejected() -> Result<(), Box<dyn std::error::Error>> {
