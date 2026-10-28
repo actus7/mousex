@@ -278,6 +278,13 @@ Veja [CONTRIBUTING.md](CONTRIBUTING.md) para a toolchain, os comandos e a organi
 
 Ideias e votos são bem-vindos nas [Issues](https://github.com/actus7/mousex/issues).
 
+## Autores
+
+- **Alex Schmitt** ([@actus7](https://github.com/actus7)): criador e mantenedor.
+- **Sergio Goncalves Neto Junior** ([@mad-pro](https://github.com/mad-pro)): Linux como computador principal (Wayland), janela de status e menu de aplicativos no Linux, e correções nas bordas das telas.
+
+Todos que contribuíram estão na [página de contribuidores](https://github.com/actus7/mousex/graphs/contributors).
+
 ## Contribuir
 
 Contribuições são bem-vindas, em inglês ou português. Leia antes o [CONTRIBUTING.md](CONTRIBUTING.md). Por favor, siga o nosso [Código de Conduta](CODE_OF_CONDUCT.md).

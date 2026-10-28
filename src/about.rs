@@ -4,6 +4,10 @@
 /// Texto do "Sobre" em português ou inglês.
 pub fn about_text(portuguese: bool, version: &str, authors: &str, license: &str, repository: &str) -> String {
     let t = |pt: &'static str, en: &'static str| if portuguese { pt } else { en };
+    // CARGO_PKG_AUTHORS separa os nomes com ":".
+    let names: Vec<&str> = authors.split(':').map(str::trim).filter(|n| !n.is_empty()).collect();
+    let label = if names.len() > 1 { t("Autores:", "Authors:") } else { t("Autor:", "Author:") };
+    let authors = names.join(", ");
     format!(
         "MouseX {version}
 
@@ -17,7 +21,7 @@ pub fn about_text(portuguese: bool, version: &str, authors: &str, license: &str,
             "Teclado, mouse e área de transferência compartilhados entre computadores Windows, Mac e Linux.",
             "Keyboard, mouse and clipboard shared across Windows, Mac and Linux computers.",
         ),
-        t("Autor:", "Author:"),
+        label,
         t("Licença:", "License:"),
         license.replace(" OR ", t(" ou ", " or ")),
     )
@@ -43,5 +47,11 @@ mod tests {
         let text = about_text(true, "1.2.3", "Alex", LICENSE, "https://example.test/mousex");
         assert!(text.contains("Autor: Alex\nLicença: MIT ou Apache-2.0\n"), "{text}");
         assert!(text.starts_with("MouseX 1.2.3\n\nTeclado, mouse e área de transferência"));
+    }
+
+    #[test]
+    fn varios_autores_viram_lista() {
+        let text = about_text(true, "1.2.3", "Alex:Sergio", LICENSE, "https://example.test/mousex");
+        assert!(text.contains("Autores: Alex, Sergio\n"), "{text}");
     }
 }

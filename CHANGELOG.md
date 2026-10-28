@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Sergio Goncalves Neto Junior (@mad-pro) is listed as an author, in the About window and in a new Authors section of the README.
+
 ## [1.5.0] - 2026-10-28
 
 ### Added
