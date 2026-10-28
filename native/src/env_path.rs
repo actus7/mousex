@@ -25,7 +25,10 @@ fn check(code: WIN32_ERROR) -> io::Result<()> {
 
 /// PATH com `dir` incluído (ou removido); `None` se já está como pedido.
 pub fn edit_path(path: &str, dir: &str, present: bool) -> Option<String> {
-    let same = |entry: &str| entry.trim().trim_end_matches('\\').eq_ignore_ascii_case(dir.trim_end_matches('\\'));
+    // Entrada com aspas ("C:\Program Files\MouseX") também vale no PATH.
+    let same = |entry: &str| {
+        entry.trim().trim_matches('"').trim_end_matches('\\').eq_ignore_ascii_case(dir.trim_end_matches('\\'))
+    };
     let entries: Vec<&str> = path.split(';').filter(|e| !e.trim().is_empty()).collect();
     match (present, entries.iter().any(|e| same(e))) {
         (true, false) => Some(entries.into_iter().chain([dir]).collect::<Vec<_>>().join(";")),
@@ -105,5 +108,7 @@ mod tests {
         let path = r"C:\Tools;C:\Program Files\MouseX;%SystemRoot%";
         assert_eq!(edit_path(path, DIR, false).as_deref(), Some(r"C:\Tools;%SystemRoot%"));
         assert_eq!(edit_path(r"C:\Tools", DIR, false), None);
+        assert_eq!(edit_path(r#"C:\Tools;"C:\Program Files\MouseX""#, DIR, false).as_deref(), Some(r"C:\Tools"));
+        assert_eq!(edit_path(r#""C:\Program Files\MouseX""#, DIR, true), None, "com aspas já está");
     }
 }
