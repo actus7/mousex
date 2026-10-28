@@ -179,6 +179,7 @@ impl Forwarder {
         let worker_reset = reset.clone();
         std::thread::spawn(move || {
             let mut file = None;
+            let mut missing_logged = false;
             while let Ok(input) = rx.recv() {
                 if worker_reset.swap(false, Ordering::SeqCst) {
                     file = None;
@@ -198,6 +199,11 @@ impl Forwarder {
                                 .ok()
                         })
                         .filter(trusted_pipe);
+                    // Sem auxiliar a tela de login fica sem mouse e teclado: registra uma vez por queda.
+                    if file.is_none() && !missing_logged {
+                        crate::log("logon helper pipe unavailable: input on the sign-in screen is dropped");
+                    }
+                    missing_logged = file.is_none();
                 }
                 if let Some(pipe) = &mut file
                     && pipe.write_all(&input.encode()).is_err()
@@ -254,12 +260,26 @@ impl InputWorker {
             let mut desktop: HDESK = ptr::null_mut();
             let mut name = Vec::new();
             let mut injector = Injector::default();
+            // Uma linha de log por desktop: o motivo fica registrado sem encher o log a cada movimento.
+            let mut failure_logged = false;
             for input in rx {
                 // SAFETY: thread sem janelas/hooks; só fecha handles próprios depois de trocar.
                 unsafe {
-                    let current =
-                        OpenInputDesktop(0, 0, DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_SWITCHDESKTOP);
+                    // SendInput exige DESKTOP_JOURNALPLAYBACK no desktop da thread; sem ele, a tela de login
+                    // ignora tudo o que o auxiliar injeta.
+                    let current = OpenInputDesktop(
+                        0,
+                        0,
+                        DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_SWITCHDESKTOP | DESKTOP_JOURNALPLAYBACK,
+                    );
                     if current.is_null() {
+                        if !failure_logged {
+                            crate::log(&format!(
+                                "logon helper: input desktop unavailable: {}",
+                                io::Error::last_os_error()
+                            ));
+                            failure_logged = true;
+                        }
                         continue;
                     }
                     let Ok(current_name) = desktop_name(current) else {
@@ -268,9 +288,17 @@ impl InputWorker {
                     };
                     if name != current_name {
                         if SetThreadDesktop(current) == 0 {
+                            if !failure_logged {
+                                crate::log(&format!(
+                                    "logon helper: desktop switch failed: {}",
+                                    io::Error::last_os_error()
+                                ));
+                                failure_logged = true;
+                            }
                             CloseDesktop(current);
                             continue;
                         }
+                        failure_logged = false;
                         if !desktop.is_null() {
                             CloseDesktop(desktop);
                         }
@@ -281,7 +309,15 @@ impl InputWorker {
                         CloseDesktop(current);
                     }
                 }
-                let _ = inject(&mut injector, input);
+                if let Err(error) = inject(&mut injector, input)
+                    && !failure_logged
+                {
+                    crate::log(&format!(
+                        "logon helper: input not injected on {}: {error}",
+                        String::from_utf16_lossy(&name)
+                    ));
+                    failure_logged = true;
+                }
             }
             drop(injector);
             // SAFETY: restaura o desktop emprestado antes de fechar o último handle próprio.

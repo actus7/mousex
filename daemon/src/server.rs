@@ -89,6 +89,11 @@ enum Msg {
         from: String,
         clip: Clip,
     },
+    /// Cópia feita aqui, lida e enviada a `to` ao entrar nele.
+    HomeCopied {
+        to: String,
+        clip: Clip,
+    },
     /// Editor fechado: o layout salvo pode ter mudado.
     LayoutEdited,
     /// `mousex side` ou a janela de status trocaram o lado do outro computador no layout salvo.
@@ -354,6 +359,8 @@ struct State {
     home_clip_seq: Arc<AtomicU32>,
     /// Clipboard da casa quando o cursor voltou: resposta tardia do remoto não sobrescreve cópia mais nova.
     pull_seq: u32,
+    /// Última cópia, para chegar também às máquinas a mais de um salto da origem.
+    relay: clip::Relay,
     tx: mpsc::UnboundedSender<Msg>,
     editor_open: Arc<AtomicBool>,
     /// Compartilhamento pausado pelo menu: o cursor não sai de casa.
@@ -383,6 +390,7 @@ impl State {
             held_buttons: BTreeSet::new(),
             home_clip_seq: Arc::new(AtomicU32::new(platform::clipboard_seq())),
             pull_seq: platform::clipboard_seq(),
+            relay: clip::Relay::default(),
             tx,
             editor_open: Arc::new(AtomicBool::new(false)),
             paused: false,
@@ -433,33 +441,27 @@ impl State {
                 log("layout reloaded: the other computer changed sides");
             }
             Msg::Identify => self.identify_screens(),
-            Msg::Clipboard { from, clip } => match &self.remote {
-                None if platform::clipboard_seq() != self.pull_seq => {
+            Msg::Clipboard { from, clip } => match self.remote.clone() {
+                // Gravação do próprio servidor (cópia repassada) não conta como cópia mais nova daqui.
+                None if ![self.pull_seq, self.home_clip_seq.load(Ordering::Relaxed)]
+                    .contains(&platform::clipboard_seq()) =>
+                {
                     log("remote clipboard dropped: a newer copy was made on this computer");
                 }
                 None => {
-                    // Gravação bloqueante fora do loop de roteamento.
-                    let seq = self.home_clip_seq.clone();
-                    let files = match &clip {
-                        clip::Clip::Files(paths) => Some(paths.len()),
-                        _ => None,
-                    };
-                    tokio::task::spawn_blocking(move || {
-                        clipboard_write(&clip);
-                        seq.store(platform::clipboard_seq(), Ordering::Relaxed);
-                        if let Some(count) = files {
-                            transfer_ui::files_ready(count);
-                        }
-                    });
+                    self.relay.copied(clip.clone(), &from, Some(&self.home));
+                    self.write_home(clip);
                 }
-                Some(target) if *target != from => {
-                    if let Some(client) = self.clients.get(target) {
-                        let conn = client.conn.clone();
-                        tokio::spawn(async move { clip::send(&conn, &clip).await });
-                    }
+                Some(target) if target != from => {
+                    self.relay.copied(clip.clone(), &from, Some(&target));
+                    self.send_clip(&target, clip);
                 }
-                Some(_) => {}
+                Some(_) => self.relay.copied(clip, &from, None),
             },
+            Msg::HomeCopied { to, clip } => {
+                let home = self.home.clone();
+                self.relay.copied(clip, &home, Some(&to));
+            }
         }
     }
 
@@ -630,16 +632,19 @@ impl State {
                 log(&format!("entered {machine} ({monitor_id} {local_x},{local_y}); cursor parked at {park:?}"));
                 self.enter(&machine, &monitor_id, local_x, local_y);
                 let seq = platform::clipboard_seq();
-                if seq != self.home_clip_seq.load(Ordering::Relaxed)
-                    && let Some(client) = self.clients.get(&machine)
-                {
+                if seq == self.home_clip_seq.load(Ordering::Relaxed) {
+                    self.deliver_relay(&machine);
+                } else if let Some(client) = self.clients.get(&machine) {
+                    // A cópia daqui é a mais nova: a anterior não pode chegar ao destino depois dela.
+                    self.relay.clear();
                     // Leitura (DIB→PNG, renderização atrasada do Office) nunca no loop com a supressão ligada.
                     // A sequência só é marcada como enviada depois de uma leitura bem-sucedida.
-                    let (conn, sent) = (client.conn.clone(), self.home_clip_seq.clone());
+                    let (conn, sent, tx) = (client.conn.clone(), self.home_clip_seq.clone(), self.tx.clone());
                     tokio::spawn(async move {
                         if let Ok(Some(clip)) = tokio::task::spawn_blocking(clipboard_read).await {
                             sent.store(seq, Ordering::Relaxed);
                             clip::send(&conn, &clip).await;
+                            let _ = tx.send(Msg::HomeCopied { to: machine, clip });
                         }
                     });
                 }
@@ -657,12 +662,15 @@ impl State {
             Action::Switch { from, to, monitor_id, local_x, local_y } => {
                 self.leave(&from);
                 self.enter(&to, &monitor_id, local_x, local_y);
+                self.deliver_relay(&to);
             }
             Action::ReturnHome { global_x, global_y } => {
                 if let Some(previous) = self.remote.take() {
                     self.pull_seq = platform::clipboard_seq();
                     self.leave(&previous);
                     log(&format!("returned from {previous} to ({global_x},{global_y})"));
+                    let home = self.home.clone();
+                    self.deliver_relay(&home);
                 }
                 os::set_suppress(false);
                 os::set_cursor(global_x, global_y);
@@ -675,6 +683,40 @@ impl State {
         self.cursor = (monitor_id.into(), x, y);
         if let Some(client) = self.clients.get(machine) {
             client.send(Control::Enter { monitor_id: native_id(monitor_id).into(), x, y });
+        }
+    }
+
+    /// Gravação bloqueante fora do loop de roteamento.
+    fn write_home(&self, clip: Clip) {
+        let seq = self.home_clip_seq.clone();
+        let files = match &clip {
+            Clip::Files(paths) => Some(paths.len()),
+            _ => None,
+        };
+        tokio::task::spawn_blocking(move || {
+            clipboard_write(&clip);
+            seq.store(platform::clipboard_seq(), Ordering::Relaxed);
+            if let Some(count) = files {
+                transfer_ui::files_ready(count);
+            }
+        });
+    }
+
+    fn send_clip(&self, machine: &str, clip: Clip) {
+        if let Some(client) = self.clients.get(machine) {
+            let conn = client.conn.clone();
+            tokio::spawn(async move { clip::send(&conn, &clip).await });
+        }
+    }
+
+    /// Entrega a `machine` a última cópia que ela ainda não tem (veio de outra máquina, talvez a dois saltos).
+    fn deliver_relay(&mut self, machine: &str) {
+        if let Some(clip) = self.relay.pending_for(machine) {
+            if machine == self.home {
+                self.write_home(clip);
+            } else {
+                self.send_clip(machine, clip);
+            }
         }
     }
 
