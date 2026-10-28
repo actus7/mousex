@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-28
+
 ### Added
 
 - Linux: MouseX is in the applications menu. Opening it starts MouseX if it is stopped and shows the status window; right-click it for **Restart** and, on the main computer, **Arrange screens**. The status window has a **Restart** button (**Start** while stopped).
@@ -162,7 +164,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/actus7/mousex/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/actus7/mousex/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/actus7/mousex/compare/v1.1.6...v1.2.0
 [1.1.6]: https://github.com/actus7/mousex/compare/v1.1.5...v1.1.6
