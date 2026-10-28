@@ -78,6 +78,7 @@ enum Msg {
     },
     Monitors {
         machine: String,
+        id: usize,
         monitors: Vec<MonitorInfo>,
     },
     Disconnected {
@@ -277,7 +278,7 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
     });
     while let Ok(message) = mousex_core::proto::read_known(&mut control_rx).await {
         if let Control::Hello { monitors, .. } = message {
-            let _ = tx.send(Msg::Monitors { machine: machine.clone(), monitors });
+            let _ = tx.send(Msg::Monitors { machine: machine.clone(), id, monitors });
         }
     }
     clip_task.abort();
@@ -394,11 +395,13 @@ impl State {
         match message {
             Msg::Input(event) => self.input(event),
             Msg::Connected { machine, client } => {
-                self.clients.insert(machine, client);
+                if let Some(previous) = self.clients.insert(machine, client) {
+                    previous.conn.close(0u32.into(), b"new connection for this device");
+                }
                 self.rebuild_layout();
             }
-            Msg::Monitors { machine, monitors } => {
-                if let Some(client) = self.clients.get_mut(&machine) {
+            Msg::Monitors { machine, id, monitors } => {
+                if let Some(client) = self.clients.get_mut(&machine).filter(|c| c.conn.stable_id() == id) {
                     client.ids = monitors.iter().map(|m| m.id.clone()).collect();
                     client.monitors = monitors;
                 }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows clients: a LocalSystem service starts an input-only helper at boot, so an already-paired computer can receive keyboard and mouse input at the Windows login and lock screens. The normal user agent takes over after sign-in and forwards secure-desktop input through a local pipe restricted to SYSTEM and Administrators. The helper does not handle clipboard, files or UI. Ctrl+Alt+Del is not forwarded.
+
 ## [1.3.0] - 2026-10-27
 
 ### Added
