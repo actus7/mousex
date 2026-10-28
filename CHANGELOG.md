@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Sergio Goncalves Neto Junior (@mad-pro) is listed as an author, in the About window and in a new Authors section of the README.
 
+### Fixed
+
+- Copy and paste now reaches computers that are not next to the one where the copy was made. With a layout like main computer → Mac → Windows notebook, a copy made on the main computer stopped at the Mac, and a copy made on the notebook never reached the main computer.
+- Windows: the shared mouse and keyboard work on the password screen after the lock screen is dismissed. The sign-in helper opened that screen without the access Windows requires for simulated input, so everything it sent was silently ignored. Failures there are now written to the log.
+
 ## [1.5.0] - 2026-10-28
 
 ### Added

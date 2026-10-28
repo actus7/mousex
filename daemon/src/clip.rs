@@ -551,3 +551,56 @@ mod tests {
         );
     }
 }
+
+/// Última cópia que atravessou o servidor e as máquinas que já a têm. Sem isso, a cópia para no primeiro
+/// salto: casa → Mac → win2 entrega ao Mac, e o Mac não a reenvia ao ser consultado (não foi ele que copiou).
+#[derive(Default)]
+pub struct Relay(Option<(Clip, std::collections::BTreeSet<String>)>);
+
+impl Relay {
+    /// Cópia nova vinda de `from`, já entregue também a `to` (se houver).
+    pub fn copied(&mut self, clip: Clip, from: &str, to: Option<&str>) {
+        self.0 = Some((clip, [Some(from), to].into_iter().flatten().map(String::from).collect()));
+    }
+
+    /// Esquece a cópia: uma mais nova está a caminho e a antiga não pode chegar depois dela.
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// A cópia que `machine` ainda não tem; a partir daqui ela conta como entregue.
+    pub fn pending_for(&mut self, machine: &str) -> Option<Clip> {
+        let (clip, holders) = self.0.as_mut()?;
+        holders.insert(machine.into()).then(|| clip.clone())
+    }
+}
+
+#[cfg(test)]
+mod relay_tests {
+    use super::*;
+
+    #[test]
+    fn copia_atravessa_maquina_intermediaria_uma_vez_so() {
+        let mut relay = Relay::default();
+        relay.copied(Clip::Text("oi".into()), "casa", Some("mac"));
+        assert_eq!(relay.pending_for("mac"), None, "o Mac já recebeu");
+        assert_eq!(relay.pending_for("win2"), Some(Clip::Text("oi".into())));
+        assert_eq!(relay.pending_for("win2"), None, "entregue uma vez só");
+        assert_eq!(relay.pending_for("casa"), None, "a origem não recebe de volta");
+    }
+
+    #[test]
+    fn copia_nova_substitui_e_clear_esquece() {
+        let mut relay = Relay::default();
+        relay.copied(Clip::Text("velha".into()), "win2", None);
+        relay.copied(Clip::Text("nova".into()), "mac", Some("win2"));
+        assert_eq!(relay.pending_for("casa"), Some(Clip::Text("nova".into())));
+        relay.clear();
+        assert!(relay.is_empty());
+        assert_eq!(relay.pending_for("linux"), None);
+    }
+}
