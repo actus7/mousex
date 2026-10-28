@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-28
+
 ### Added
 
 - Windows: the install folder is added to the system PATH, so `mousex update`, `mousex status` and the other commands work in any new terminal. Installs that update to this version get it the next time MouseX starts; uninstalling removes it.
+- The tray menu of the main computer shows the MouseX version of each connected computer next to its name. Computers on 1.4.0 or older show no version until they update.
 
 ## [1.4.0] - 2026-10-28
 
@@ -168,7 +171,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/actus7/mousex/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/actus7/mousex/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/actus7/mousex/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/actus7/mousex/compare/v1.1.6...v1.2.0

@@ -124,6 +124,8 @@ struct Client {
     /// Monitores do último Hello: reconstruir o layout nunca perde um cliente conectado.
     monitors: Vec<MonitorInfo>,
     seq: u32,
+    /// Versão do MouseX que o cliente informou no Hello (`None` em versões antigas).
+    version: Option<String>,
 }
 
 impl Client {
@@ -226,7 +228,7 @@ fn close_reason(conn: &quinn::Connection) -> String {
 /// Autoriza (allowlist ou pareamento com diálogo) e cuida das tasks de I/O de um cliente.
 async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, home: String) {
     let Link { conn, peer_fingerprint, mut control_tx, mut control_rx } = link;
-    let Ok(Ok(Control::Hello { machine: claimed, monitors })) =
+    let Ok(Ok(Control::Hello { machine: claimed, monitors, version })) =
         tokio::time::timeout(HELLO_TIMEOUT, read_control(&mut control_rx)).await
     else {
         conn.close(1u32.into(), b"hello ausente");
@@ -257,7 +259,7 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
     let ids = monitors.iter().map(|m| m.id.clone()).collect();
     let _ = tx.send(Msg::Connected {
         machine: machine.clone(),
-        client: Client { conn: conn.clone(), control, ids, monitors, seq: 0 },
+        client: Client { conn: conn.clone(), control, ids, monitors, seq: 0, version },
     });
     let clip_conn = conn.clone();
     let clip_tx = tx.clone();
@@ -840,8 +842,13 @@ impl State {
         let machines = machines_in_order(&self.layout)
             .into_iter()
             .map(|name| {
+                let version = match self.clients.get(&name) {
+                    Some(client) => client.version.clone(),
+                    None if name == self.home => Some(mousex_core::proto::VERSION.into()),
+                    None => None,
+                };
                 let connected = name == self.home || self.clients.contains_key(&name);
-                (name, connected)
+                (name, connected, version)
             })
             .collect();
         os::set_tray_status(TrayStatus {

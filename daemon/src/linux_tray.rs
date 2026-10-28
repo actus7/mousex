@@ -45,12 +45,13 @@ mod tray {
         fn menu(&self) -> Vec<MenuItem<Self>> {
             let t = |pt: &str, en: &str| if self.status.portuguese { pt.to_string() } else { en.to_string() };
             let mut items = Vec::new();
-            for (index, (name, connected)) in self.status.machines.iter().take(9).enumerate() {
+            for (index, (name, connected, version)) in self.status.machines.iter().take(9).enumerate() {
                 let mark = if *connected { "●" } else { "○" };
+                let version = version.as_deref().map(|v| format!("    v{v}")).unwrap_or_default();
                 let number = (index + 1) as u8;
                 let enabled = *connected && !self.status.paused;
                 items.push(item(
-                    format!("{mark}  {name}\tCtrl+Alt+Shift+{number}"),
+                    format!("{mark}  {name}\tCtrl+Alt+Shift+{number}{version}"),
                     enabled,
                     Box::new(move |icon: &mut Icon| {
                         let _ = icon.tx.send(Event::Tray(TrayCommand::Jump(number)));

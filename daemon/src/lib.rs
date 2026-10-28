@@ -266,7 +266,11 @@ async fn run_client(config: Config, identity: DeviceIdentity, dir: std::path::Pa
     let hello = {
         // Monitores lidos a cada conexão: telas rearranjadas enquanto desconectado também valem.
         let machine = config.machine.clone();
-        move || Control::Hello { machine: machine.clone(), monitors: platform::local_monitors() }
+        move || Control::Hello {
+            machine: machine.clone(),
+            monitors: platform::local_monitors(),
+            version: Some(mousex_core::proto::VERSION.into()),
+        }
     };
     client::client_loop(endpoint, locate, authorize, hello, platform::Native::new(&monitors)).await;
     Ok(())

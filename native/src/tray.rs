@@ -46,8 +46,8 @@ static STATUS: Mutex<TrayStatus> =
 /// O que o menu e o ícone mostram; o servidor publica a cada mudança.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TrayStatus {
-    /// Máquinas da esquerda para a direita (numeração dos atalhos) e se estão conectadas.
-    pub machines: Vec<(String, bool)>,
+    /// Máquinas da esquerda para a direita (numeração dos atalhos), se estão conectadas e a versão do MouseX delas.
+    pub machines: Vec<(String, bool, Option<String>)>,
     /// Alguma máquina remota conectada e compartilhamento ligado: ícone colorido.
     pub active: bool,
     pub paused: bool,
@@ -84,10 +84,12 @@ fn menu_items(status: &TrayStatus) -> Vec<(usize, String, u32)> {
         .iter()
         .take(9)
         .enumerate()
-        .map(|(i, (name, connected))| {
+        .map(|(i, (name, connected, version))| {
             let mark = if *connected { "●" } else { "○" };
             let flags = if *connected && !status.paused { MF_STRING } else { MF_STRING | MF_GRAYED };
-            (MENU_JUMP + i + 1, format!("{mark}  {name}\tCtrl+Alt+Shift+{}", i + 1), flags)
+            // Depois do \t o Windows alinha à direita: atalho e, se o cliente informou, a versão dele.
+            let version = version.as_deref().map(|v| format!("    v{v}")).unwrap_or_default();
+            (MENU_JUMP + i + 1, format!("{mark}  {name}\tCtrl+Alt+Shift+{}{version}", i + 1), flags)
         })
         .collect();
     if !items.is_empty() {
@@ -122,7 +124,7 @@ fn about_text(portuguese: bool) -> String {
 
 fn tooltip(status: &TrayStatus) -> String {
     let t = |pt: &'static str, en: &'static str| if status.portuguese { pt } else { en };
-    let connected: Vec<&str> = status.machines.iter().filter(|(_, c)| *c).map(|(n, _)| n.as_str()).collect();
+    let connected: Vec<&str> = status.machines.iter().filter(|(_, c, _)| *c).map(|(n, _, _)| n.as_str()).collect();
     let state = if status.paused {
         t(" (pausado)", " (paused)")
     } else if status.locked {
@@ -339,7 +341,11 @@ mod tests {
 
     fn sample() -> TrayStatus {
         TrayStatus {
-            machines: vec![("win2".into(), true), ("mac".into(), false), ("DESKTOP".into(), true)],
+            machines: vec![
+                ("win2".into(), true, Some("1.4.0".into())),
+                ("mac".into(), false, None),
+                ("DESKTOP".into(), true, None),
+            ],
             active: true,
             paused: false,
             locked: true,
@@ -350,7 +356,7 @@ mod tests {
     #[test]
     fn menu_numera_maquinas_como_os_atalhos() {
         let items = menu_items(&sample());
-        assert_eq!(items[0], (MENU_JUMP + 1, "●  win2\tCtrl+Alt+Shift+1".into(), MF_STRING));
+        assert_eq!(items[0], (MENU_JUMP + 1, "●  win2\tCtrl+Alt+Shift+1    v1.4.0".into(), MF_STRING));
         assert_eq!(
             items[1],
             (MENU_JUMP + 2, "○  mac\tCtrl+Alt+Shift+2".into(), MF_STRING | MF_GRAYED),
