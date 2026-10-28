@@ -208,6 +208,10 @@ pub(crate) fn refresh_update_task() {
     if let Err(error) = create_task(UPDATE_TASK, &update_task_xml(&dir.join(CLI))) {
         crate::log(&format!("update task could not be refreshed: {error}"));
     }
+    // Pelo mesmo caminho a pasta entra no PATH: `mousex` funciona em qualquer terminal novo.
+    if let Err(error) = mousex_native::set_in_system_path(&dir, true) {
+        crate::log(&format!("install folder not added to PATH: {error}"));
+    }
 }
 
 /// Agente novo após um update antigo também instala o serviço do cliente, sem mudar o papel do PC.
@@ -476,6 +480,9 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
     let _ = command("reg", &["delete", UNINSTALL_KEY, "/f"]);
     std::thread::sleep(Duration::from_millis(500));
     let dir = install_dir()?;
+    if let Err(error) = mousex_native::set_in_system_path(&dir, false) {
+        crate::log(&format!("install folder not removed from PATH: {error}"));
+    }
     if std::fs::remove_dir_all(&dir).is_err() {
         // Este executável pode estar rodando de dentro da pasta: ela é apagada logo depois que ele sair.
         use std::os::windows::process::CommandExt;
