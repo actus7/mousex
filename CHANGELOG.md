@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A screen that reconnects with a new ID (flaky USB-C/HDMI cable, reboot) takes over its old place in the layout instead of being added again as a duplicate.
+
 ## [1.3.0] - 2026-10-27
 
 ### Added
