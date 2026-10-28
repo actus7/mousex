@@ -38,8 +38,10 @@ mod access;
 mod clip_files;
 mod clip_image;
 mod display;
+mod env_path;
 mod resilience;
 pub use clip_image::{clip_from_png, dib_to_png, png_to_dib, Clip, MAX_CLIPBOARD_IMAGE_BYTES};
+pub use env_path::set_in_system_path;
 
 #[derive(Clone)]
 pub struct Monitor {

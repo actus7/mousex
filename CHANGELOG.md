@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Windows: the install folder is added to the system PATH, so `mousex update`, `mousex status` and the other commands work in any new terminal. Installs that update to this version get it the next time MouseX starts; uninstalling removes it.
+
 ## [1.4.0] - 2026-10-28
 
 ### Added
