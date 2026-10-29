@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The cursor no longer gets stuck when a computer in the middle of the layout is turned off. With a layout like main computer → Mac → Windows notebook, turning the Mac off left the notebook unreachable; the cursor now passes through the screens of the computer that is off and lands on the next connected one, and comes back the same way.
+
 ## [1.5.1] - 2026-10-28
 
 ### Changed

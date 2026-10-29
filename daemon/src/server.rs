@@ -843,7 +843,8 @@ impl State {
     }
 
     fn refresh_router(&mut self) {
-        self.router.set_layout(connected_view(&self.layout, &self.home, &self.connected_monitors()));
+        let connected = connected_view(&self.layout, &self.home, &self.connected_monitors());
+        self.router.set_layout(connected, self.layout.clone());
         // Layout completo, não só o das conectadas: a barreira de quem desconecta fica, e reconectar não mexe nela.
         os::set_neighbors(&self.layout, &self.home);
         self.update_tray();
