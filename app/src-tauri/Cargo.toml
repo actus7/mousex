@@ -1,6 +1,6 @@
 [package]
 name = "mousex-app"
-version = "1.5.1"
+version = "1.5.2"
 license = "MIT OR Apache-2.0"
 edition = "2021"
 

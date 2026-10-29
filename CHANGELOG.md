@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-29
+
 ### Fixed
 
 - The cursor no longer gets stuck when a computer in the middle of the layout is turned off. With a layout like main computer → Mac → Windows notebook, turning the Mac off left the notebook unreachable; the cursor now passes through the screens of the computer that is off and lands on the next connected one, and comes back the same way.
@@ -186,7 +188,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/actus7/mousex/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/actus7/mousex/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/actus7/mousex/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/actus7/mousex/compare/v1.3.0...v1.4.0

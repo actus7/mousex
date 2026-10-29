@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "mousex"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "dirs",
  "ksni 0.2.2",
@@ -1071,7 +1071,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-core"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "ed25519-dalek",
  "mdns-sd",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-native"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "mousex-core",
  "png 0.17.16",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-platform-linux"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "arboard",
  "ashpd",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "mousex-platform-macos"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "block2",
  "core-foundation",
