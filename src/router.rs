@@ -1,5 +1,5 @@
 //! Cursor virtual do servidor: decide entrada, movimento, troca e volta entre máquinas.
-use crate::{Direction, Monitor, Point, ScreenLayout, edge_router};
+use crate::{Direction, Monitor, Point, ScreenLayout, Transition, edge_router};
 
 /// Maior deslocamento crível num único evento de mouse (px). Acima disso é artefato
 /// (evento calculado antes do cursor ser estacionado) e seria um salto falso no remoto.
@@ -47,7 +47,10 @@ pub enum Action {
 }
 
 pub struct Router {
+    /// Só telas conectadas: destino normal das bordas.
     layout: ScreenLayout,
+    /// Layout completo, com telas ausentes: ponte até a próxima máquina conectada quando a do meio desliga.
+    full: ScreenLayout,
     home: String,
     focus: Focus,
     /// Posição global do cursor virtual enquanto o foco é remoto.
@@ -58,11 +61,19 @@ pub struct Router {
 
 impl Router {
     pub fn new(layout: ScreenLayout, home_machine: &str) -> Self {
-        Self { layout, home: home_machine.into(), focus: Focus::Home, pos: Point { x: 0.0, y: 0.0 }, locked: false }
+        Self {
+            full: layout.clone(),
+            layout,
+            home: home_machine.into(),
+            focus: Focus::Home,
+            pos: Point { x: 0.0, y: 0.0 },
+            locked: false,
+        }
     }
 
-    pub fn set_layout(&mut self, layout: ScreenLayout) {
-        self.layout = layout;
+    pub fn set_layout(&mut self, connected: ScreenLayout, full: ScreenLayout) {
+        self.layout = connected;
+        self.full = full;
     }
 
     pub fn focus(&self) -> &Focus {
@@ -127,7 +138,7 @@ impl Router {
             if !at_edge {
                 continue;
             }
-            let Ok(Some(t)) = edge_router(&self.layout, point, direction) else { continue };
+            let Some((t, _)) = self.route(point, direction, &self.home) else { continue };
             if t.machine == self.home {
                 continue;
             }
@@ -167,9 +178,9 @@ impl Router {
         } else {
             (Direction::Up, Point { x: clamped.x, y: b.top })
         };
-        match edge_router(&self.layout, point, direction) {
+        match self.route(point, direction, &machine) {
             // Preso: só passa para outro monitor da mesma máquina.
-            Ok(Some(t)) if t.machine == self.home && !self.locked => {
+            Some((t, bridged)) if t.machine == self.home && !self.locked => {
                 self.focus = Focus::Home;
                 // Um pixel para dentro: o pixel da borda é o gatilho de entrada e faria o cursor quicar de volta.
                 let inward = match direction {
@@ -178,12 +189,12 @@ impl Router {
                     Direction::Up => Point { y: t.global.y - 1.0, ..t.global },
                     Direction::Down => Point { y: t.global.y + 1.0, ..t.global },
                 };
-                let landing =
-                    self.layout.monitores.iter().any(|m| m.machine == self.home && contains(m, inward.x, inward.y));
+                let landing = !bridged
+                    && self.layout.monitores.iter().any(|m| m.machine == self.home && contains(m, inward.x, inward.y));
                 let (global_x, global_y) = floor(if landing { inward } else { t.global });
                 Action::ReturnHome { global_x, global_y }
             }
-            Ok(Some(t)) if !self.locked || t.machine == machine => {
+            Some((t, _)) if !self.locked || t.machine == machine => {
                 self.pos = t.global;
                 self.focus = Focus::Remote { machine: t.machine.clone(), monitor_id: t.monitor_id.clone() };
                 let (local_x, local_y) = floor(t.local);
@@ -195,6 +206,43 @@ impl Router {
             }
             _ => self.move_within(&current, next),
         }
+    }
+
+    /// Vizinho conectado da borda; sem ele, atravessa as telas ausentes (máquina desligada no meio do caminho)
+    /// até a primeira tela conectada de outra máquina. `true` = veio pela ponte, já cai um pixel para dentro.
+    fn route(&self, point: Point, direction: Direction, from: &str) -> Option<(Transition, bool)> {
+        if let Ok(Some(t)) = edge_router(&self.layout, point, direction) {
+            return Some((t, false));
+        }
+        let first = edge_router(&self.full, point, direction).ok()??;
+        let online = |id: &str| self.layout.monitores.iter().find(|m| m.id == id);
+        if online(&first.monitor_id).is_some() {
+            return None;
+        }
+        // ponytail: busca em largura sobre poucas telas (O(n²)); chega a primeira encontrada, não a mais perto.
+        let mut seen = vec![first.monitor_id.clone()];
+        let mut queue = std::collections::VecDeque::from([first.monitor_id]);
+        while let Some(id) = queue.pop_front() {
+            let Some(absent) = self.full.monitores.iter().find(|m| m.id == id) else { continue };
+            for next in &self.full.monitores {
+                if next.machine == from || seen.contains(&next.id) {
+                    continue;
+                }
+                let Some(global) = entry_point(absent, next, point) else { continue };
+                if let Some(target) = online(&next.id) {
+                    let t = Transition {
+                        monitor_id: target.id.clone(),
+                        machine: target.machine.clone(),
+                        global,
+                        local: target.global_to_local(global),
+                    };
+                    return Some((t, true));
+                }
+                seen.push(next.id.clone());
+                queue.push_back(next.id.clone());
+            }
+        }
+        None
     }
 
     pub fn on_disconnect(&mut self, machine: &str) -> Action {
@@ -267,6 +315,29 @@ fn distance(m: &Monitor, x: f64, y: f64) -> f64 {
     let dx = (b.left - x).max(0.0).max(x - (b.right - 1.0));
     let dy = (b.top - y).max(0.0).max(y - (b.bottom - 1.0));
     dx.hypot(dy)
+}
+
+/// Ponto em `to` junto da borda que encosta em `from`, um pixel além do pixel de borda (que é gatilho de saída
+/// e faria o cursor quicar). `None` se só se tocam no canto ou nem se tocam.
+fn entry_point(from: &Monitor, to: &Monitor, near: Point) -> Option<Point> {
+    let (a, b) = (from.bounds(), to.bounds());
+    let (top, bottom) = (a.top.max(b.top), a.bottom.min(b.bottom));
+    let (left, right) = (a.left.max(b.left), a.right.min(b.right));
+    let x = if a.right == b.left && top < bottom {
+        b.left + 1.0
+    } else if a.left == b.right && top < bottom {
+        b.right - 2.0
+    } else {
+        let y = if a.bottom == b.top && left < right {
+            b.top + 1.0
+        } else if a.top == b.bottom && left < right {
+            b.bottom - 2.0
+        } else {
+            return None;
+        };
+        return Some(Point { x: near.x.clamp(left, right - 1.0), y });
+    };
+    Some(Point { x, y: near.y.clamp(top, bottom - 1.0) })
 }
 
 fn floor(p: Point) -> (i32, i32) {
@@ -440,9 +511,43 @@ mod tests {
     }
 
     #[test]
+    fn maquina_desligada_no_meio_vira_ponte_ate_a_proxima() {
+        // win2 ← mac (2 telas) ← casa embaixo da tela grande do mac; o mac desliga.
+        let at = |id: &str, machine: &str, x, y, width, height| Monitor {
+            id: id.into(),
+            machine: machine.into(),
+            x,
+            y,
+            width,
+            height,
+            scale_fator: 1.0,
+        };
+        let full = ScreenLayout {
+            monitores: vec![
+                at("w", "win2", 0, 100, 1920, 1200),
+                at("m1", "mac", 1920, 100, 1470, 956),
+                at("m2", "mac", 3390, 0, 3440, 1440),
+                at("h", "home", 3390, 1440, 3440, 1440),
+            ],
+        };
+        let connected =
+            ScreenLayout { monitores: full.monitores.iter().filter(|m| m.machine != "mac").cloned().collect() };
+        let mut r = Router::new(connected.clone(), "home");
+        assert_eq!(r.on_home_cursor(4000, 1440), Action::None, "sem a ponte o win2 fica inalcançável");
+        r.set_layout(connected, full);
+        assert_eq!(
+            r.on_home_cursor(4000, 1440),
+            Action::Enter { machine: "win2".into(), monitor_id: "w".into(), local_x: 1918, local_y: 955 }
+        );
+        // Volta pelo mesmo caminho, caindo um pixel dentro da casa (sem quicar de volta).
+        assert_eq!(r.on_delta(5, 0), Action::ReturnHome { global_x: 3390, global_y: 1441 });
+    }
+
+    #[test]
     fn layout_sem_o_monitor_focado_volta_para_casa() {
         let mut r = entered_win2();
-        r.set_layout(ScreenLayout { monitores: vec![monitor("h", "home", 0, 1920, 1080, 1.0)] });
+        let home = ScreenLayout { monitores: vec![monitor("h", "home", 0, 1920, 1080, 1.0)] };
+        r.set_layout(home.clone(), home);
         assert!(matches!(r.on_delta(1, 0), Action::ReturnHome { .. }));
     }
 
