@@ -565,13 +565,19 @@ impl Injector {
             | Event::HooksRestored(_)
             | Event::SessionLocked => return Err(io::Error::new(io::ErrorKind::InvalidInput, "evento só de captura")),
             Event::Key { scancode, extended, down } => {
+                // O hook marca NumLock como 0x45 estendido e Pause como 0x45 simples, mas na injeção E0 45 não
+                // vira tecla nenhuma e 0x45 simples vira NumLock. Pause (E1 1D 45) só sai por virtual key.
+                let (vk, scan, flags) = match (scancode, extended) {
+                    (0x45, true) => (0, 0x45, KEYEVENTF_SCANCODE),
+                    (0x45, false) => (VK_PAUSE, 0x45, 0),
+                    (_, true) => (0, scancode, KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY),
+                    (_, false) => (0, scancode, KEYEVENTF_SCANCODE),
+                };
                 input.r#type = INPUT_KEYBOARD;
                 input.Anonymous.ki = KEYBDINPUT {
-                    wVk: 0,
-                    wScan: scancode,
-                    dwFlags: KEYEVENTF_SCANCODE
-                        | if extended { KEYEVENTF_EXTENDEDKEY } else { 0 }
-                        | if down { 0 } else { KEYEVENTF_KEYUP },
+                    wVk: vk,
+                    wScan: scan,
+                    dwFlags: flags | if down { 0 } else { KEYEVENTF_KEYUP },
                     time: 0,
                     dwExtraInfo: INPUT_MARKER,
                 };
@@ -1228,6 +1234,16 @@ mod tests {
         };
         SENT.with(|sent| sent.borrow_mut().push(entry));
         Ok(())
+    }
+
+    #[test]
+    fn numlock_sai_sem_flag_estendida_e_pause_por_virtual_key() {
+        let mut injector = Injector::with_sender(record);
+        SENT.with(|sent| sent.borrow_mut().clear());
+        injector.send(Event::Key { scancode: 0x45, extended: true, down: true }).expect("numlock");
+        injector.send(Event::Key { scancode: 0x45, extended: false, down: false }).expect("pause");
+        let sent = SENT.with(|sent| sent.borrow().clone());
+        assert_eq!(sent, [(INPUT_KEYBOARD, 0x45, KEYEVENTF_SCANCODE), (INPUT_KEYBOARD, 0x45, KEYEVENTF_KEYUP)]);
     }
 
     #[test]
