@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: Num Lock works on the remote computer again. The key was sent with a code Windows does not recognize and was silently dropped. Pause, which shares the same code, no longer turns into Num Lock.
+
 ## [1.5.2] - 2026-10-29
 
 ### Fixed
