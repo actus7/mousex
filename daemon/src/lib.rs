@@ -1,6 +1,8 @@
 mod activity;
 #[cfg(target_os = "linux")]
 mod arrange;
+#[cfg(not(windows))]
+mod cli_path;
 pub(crate) mod client;
 #[cfg(not(windows))]
 pub(crate) mod client_install;
@@ -163,7 +165,10 @@ pub fn agent_main() {
     #[cfg(target_os = "linux")]
     arm_run_limit();
     #[cfg(not(windows))]
-    update::schedule();
+    {
+        cli_path::ensure_logged();
+        update::schedule();
+    }
     monitor::serve_background();
     // O AppKit só mostra o ícone da barra de menus na thread principal, então o agente vai para outra.
     #[cfg(target_os = "macos")]
