@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-11-06
+
 ### Fixed
 
 - Mac and Linux: the `mousex` command now works in any new terminal. Every time the agent starts (and every update restarts it) it checks that `~/.local/bin/mousex` points to the installed program and that `~/.local/bin` is on the shell `PATH`, adding both if missing. It never overwrites a `mousex` you put there yourself. Windows already did this.
@@ -204,7 +206,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.4...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.5...HEAD
+[1.5.5]: https://github.com/actus7/mousex/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/actus7/mousex/compare/v1.5.3...v1.5.4
 [1.5.3]: https://github.com/actus7/mousex/compare/v1.5.2...v1.5.3
 [1.5.2]: https://github.com/actus7/mousex/compare/v1.5.1...v1.5.2
