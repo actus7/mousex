@@ -252,7 +252,7 @@ MouseX detects monitor changes live. Open **Arrange screens…** from the tray t
 Open `mousex monitor`. The log says how many screen edges capture the cursor ("pointer barriers on 1 screen edge(s)"): only edges that touch another computer do, so the others stay free for the desktop (a dock that hides at the bottom, hot corners). A new computer starts on the right: if it sits on your left, run `mousex side left` or move it in `mousex arrange`. Screens only connect where their edges touch. Also check that you allowed capturing the keyboard and mouse when MouseX started. If it stopped after you locked the screen: when the capture ends, MouseX restarts by itself, and after you unlock GNOME asks again to allow it. The **Restart** button in the status window does the same right away.
 
 **The other computer stopped responding to the keyboard and mouse.**
-The main computer pings the others every 2 s. One that stays silent for 8 s, or stops applying the motion, is reconnected by itself and comes back in about a second; the log says why ("… reconnecting it"). Both computers need a version newer than 1.5.6 for the ping; with an older one, only motion that could not be sent is noticed.
+The main computer pings the others every 2 s. One that stays silent for 8 s, or stops applying the motion, is reconnected by itself and comes back in about a second; the log says why ("… reconnecting it"). Both computers need 1.5.6 or newer for the ping; with an older one, only motion that could not be sent is noticed.
 
 **Where are the logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`
