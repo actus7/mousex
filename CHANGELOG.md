@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Mac and Linux: the `mousex` command now works in any new terminal. Every time the agent starts (and every update restarts it) it checks that `~/.local/bin/mousex` points to the installed program and that `~/.local/bin` is on the shell `PATH`, adding both if missing. It never overwrites a `mousex` you put there yourself. Windows already did this.
+
 ## [1.5.4] - 2026-11-06
 
 ### Fixed
