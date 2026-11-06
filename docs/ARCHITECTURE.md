@@ -111,11 +111,13 @@ Three channels carry traffic over one QUIC connection.
 
 | Channel | QUIC mechanism | Used for | Delivery |
 |---|---|---|---|
-| Control | One bidirectional stream, preceded by a single byte `0x53` | `Hello`, `Enter`, `Leave`, keys, clicks, wheel, clipboard pull, activity, lock | Reliable, in order |
+| Control | One bidirectional stream, preceded by a single byte `0x53` | `Hello`, `Enter`, `Leave`, keys, clicks, wheel, clipboard pull, activity, lock, `Ping`/`Pong` | Reliable, in order |
 | Motion | Unreliable datagrams | Absolute cursor position on a monitor | Unreliable; latest wins |
 | Clipboard and files | One unidirectional stream per transfer, low priority (`-1`) for files | Text, PNG images, file lists | Reliable, one transfer per stream |
 
 Other QUIC settings: ALPN `mousex/1`, keepalive every 500 ms, and idle timeout of 1.5 s. A connection that stops answering is dropped, and the client starts reconnecting.
+
+The QUIC keepalive is answered by the network task, so a connection can stay up while the client applies nothing. The server sends `Ping` to every client every 2 s, and the client answers `Pong` from the loop that injects, with the sequence of the last motion it applied. A client that answered before and stays silent for 8 s, or answers twice with the motion more than 100 datagrams behind what was sent, is reconnected. So is one that the server could not send more than 100 moves to between two pings (the screen under the cursor is not in its `Hello`). Older clients skip `Ping` and are watched only for that last case.
 
 ### Control frames
 
