@@ -126,6 +126,11 @@ pub fn cli_main() {
 
 /// `mousex-agent.exe`: o serviço em segundo plano iniciado pela tarefa no logon, sem janela.
 pub fn agent_main() {
+    // Sem isto, `--version` subiria uma 2ª instância com a mesma identidade e derrubaria a conexão do agente real.
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V" | "version")) {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     #[cfg(windows)]
     match std::env::args().nth(1).as_deref() {
         Some("--service") => {
