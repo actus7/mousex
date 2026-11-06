@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The main computer log no longer gets a "barrier at … stayed on this computer" line for every mouse move at the edge: at most one per second, with the number left out ("(+N more)"). That line was ~99% of the log, which rotates at 1 MB, so the history of disconnects and reconnects was lost in about an hour.
+
 ## [1.5.6] - 2026-11-06
 
 ### Fixed
