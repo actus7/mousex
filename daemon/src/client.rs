@@ -172,8 +172,13 @@ async fn session<P: Platform>(link: Link, hello: &Control, platform: &mut P) -> 
                     platform.lock_screen();
                 }
                 Some(Control::Identify { screens }) => platform.identify(&screens),
-                Some(Control::Hello { .. }) => {}
+                Some(Control::Hello { .. } | Control::Pong { .. }) => {}
                 Some(Control::Server { machine }) => link_status::set(link_status::Link::Connected(machine)),
+                // Responde daqui, do loop que injeta: a conexão viva sozinha não mostra que a entrada é aplicada.
+                Some(Control::Ping { n }) => {
+                    let pong = Control::Pong { n, motion: last_seq.unwrap_or(0) };
+                    if write_control(&mut control_tx, &pong).await.is_err() { break; }
+                }
             },
             datagram = conn.read_datagram() => match datagram {
                 Err(_) => break,
@@ -411,6 +416,22 @@ mod tests {
         }
         wait_for(&fake, "move 0 20 0").await;
         assert!(!fake.log().iter().any(|l| l == "move 0 99 0"));
+    }
+
+    #[tokio::test]
+    async fn ping_volta_com_o_ultimo_movimento_aplicado() {
+        let (server, fake) = setup().await;
+        let mut link = accept_hello(&server).await;
+        link.conn
+            .send_datagram(Motion { seq: 7, monitor: 0, x: 30, y: 0 }.encode().to_vec().into())
+            .expect("datagrama");
+        wait_for(&fake, "move 0 30 0").await;
+        write_control(&mut link.control_tx, &Control::Ping { n: 3 }).await.expect("ping");
+        let pong = tokio::time::timeout(Duration::from_secs(5), read_control(&mut link.control_rx))
+            .await
+            .expect("sem pong")
+            .expect("leitura");
+        assert_eq!(pong, Control::Pong { n: 3, motion: 7 });
     }
 
     #[tokio::test]

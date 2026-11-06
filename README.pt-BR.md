@@ -251,6 +251,9 @@ O MouseX detecta mudanças de monitor em tempo real. Abra **Arrumar telas…** n
 **Computador principal Linux: o cursor não passa para o outro computador.**
 Abra o `mousex monitor`. O log diz quantas bordas de tela capturam o cursor ("pointer barriers on 1 screen edge(s)"): só as que encostam noutro computador, e as outras ficam livres para a área de trabalho (um dock que se esconde embaixo, cantos ativos). Um computador novo entra à direita: se ele fica à sua esquerda, rode `mousex side left` ou mova no `mousex arrange`. As telas só se ligam onde as bordas se encostam. Confira também se você permitiu a captura do teclado e do mouse quando o MouseX iniciou. Se parou depois de bloquear a tela: quando a captura cai, o MouseX reinicia sozinho e, ao desbloquear, o GNOME pede de novo para permitir. O botão **Reiniciar** da janela de status faz o mesmo na hora.
 
+**O outro computador parou de responder ao teclado e ao mouse.**
+O computador principal pinga os outros a cada 2 s. Se um deles fica 8 s sem responder, ou para de aplicar o movimento, ele é reconectado sozinho e volta em cerca de um segundo; o log diz por quê ("… reconnecting it"). Os dois computadores precisam de uma versão mais nova que a 1.5.6 para o ping; com um mais antigo, só o movimento que não pôde ser enviado é notado.
+
 **Onde ficam os logs?**
 - Windows: `C:\ProgramData\MouseX\mousex.log`
 - macOS: `~/Library/Application Support/mousex/mousex.log`

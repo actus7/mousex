@@ -37,6 +37,12 @@ const ACTIVITY_INTERVAL: Duration = Duration::from_secs(30);
 const ACTIVE_WINDOW: Duration = Duration::from_secs(60);
 /// Mesmo ritmo dos clientes para notar resolução nova nas telas deste computador.
 const HOME_MONITOR_POLL: Duration = Duration::from_secs(2);
+/// Vigia dos clientes: um ping a cada `PING_INTERVAL`. A conexão QUIC pode seguir viva (o keepalive responde)
+/// com o cliente sem aplicar nada; quem já respondeu e fica `SILENCE` calado é reconectado e volta em ~1 s.
+const PING_INTERVAL: Duration = Duration::from_secs(2);
+const SILENCE: Duration = Duration::from_secs(8);
+/// Movimentos atrás do enviado numa resposta, ou não enviados num intervalo do vigia: movimento parado.
+const MOTION_LAG: u32 = 100;
 /// Bloqueio com entrada física recente foi pedido pelo usuário (Win+L); mais antigo é inatividade, e aí o
 /// usuário pode estar usando o teclado de outra máquina: ela não é bloqueada.
 const LOCK_INTENT_WINDOW: Duration = Duration::from_secs(10);
@@ -105,6 +111,15 @@ enum Msg {
     Identify,
     /// Relógio da atividade (manter as outras máquinas acordadas).
     Tick,
+    /// Resposta de um cliente ao ping do vigia.
+    Pong {
+        machine: String,
+        id: usize,
+        n: u32,
+        motion: u32,
+    },
+    /// Relógio do vigia dos clientes.
+    Watch,
     /// Telas deste computador mudaram (resolução, monitor ligado ou desligado).
     HomeMonitorsChanged,
 }
@@ -133,11 +148,58 @@ struct Client {
     seq: u32,
     /// Versão do MouseX que o cliente informou no Hello (`None` em versões antigas).
     version: Option<String>,
+    watch: Watch,
 }
 
 impl Client {
     fn send(&self, message: Control) {
         let _ = self.control.send(message);
+    }
+}
+
+/// Vigia de um cliente: só a resposta do loop dele mostra que teclas e movimento estão sendo aplicados.
+#[derive(Default)]
+struct Watch {
+    /// Último ping: número e sequência do último movimento enviado até ele.
+    ping: (u32, u32),
+    /// Última resposta. `None` em quem nunca respondeu (versão antiga): esse só conta o movimento não enviado.
+    answered: Option<Instant>,
+    /// Respostas seguidas com o movimento parado atrás do enviado.
+    lagging: u8,
+    /// Movimentos para este cliente que não saíram desde o último ping (tela fora da lista dele, envio recusado).
+    unsent: u32,
+}
+
+impl Watch {
+    /// Próximo ping, com a sequência do último movimento enviado; zera a conta do não enviado.
+    fn ping(&mut self, sent: u32) -> u32 {
+        self.ping = (self.ping.0.wrapping_add(1), sent);
+        self.unsent = 0;
+        self.ping.0
+    }
+
+    fn pong(&mut self, now: Instant, n: u32, applied: u32) {
+        self.answered = Some(now);
+        if n == self.ping.0 {
+            // Com sinal: o cliente pode já ter aplicado movimento enviado depois do ping.
+            let behind = self.ping.1.wrapping_sub(applied) as i32 > MOTION_LAG as i32;
+            self.lagging = if behind { self.lagging.saturating_add(1) } else { 0 };
+        }
+    }
+
+    /// Por que reconectar o cliente, se ele parou de receber ou de aplicar a entrada.
+    fn stalled(&self, now: Instant) -> Option<String> {
+        if self.unsent > MOTION_LAG {
+            return Some(format!("is not getting the mouse motion ({} moves not sent)", self.unsent));
+        }
+        let answered = self.answered?;
+        if now.saturating_duration_since(answered) >= SILENCE {
+            Some(format!("stopped answering for {} s", SILENCE.as_secs()))
+        } else if self.lagging >= 2 {
+            Some("stopped applying the mouse motion".into())
+        } else {
+            None
+        }
     }
 }
 
@@ -185,6 +247,16 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
         loop {
             ticker.tick().await;
             if tick_tx.send(Msg::Tick).is_err() {
+                break;
+            }
+        }
+    });
+    let watch_tx = tx.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(PING_INTERVAL);
+        loop {
+            ticker.tick().await;
+            if watch_tx.send(Msg::Watch).is_err() {
                 break;
             }
         }
@@ -266,7 +338,7 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
     let ids = monitors.iter().map(|m| m.id.clone()).collect();
     let _ = tx.send(Msg::Connected {
         machine: machine.clone(),
-        client: Client { conn: conn.clone(), control, ids, monitors, seq: 0, version },
+        client: Client { conn: conn.clone(), control, ids, monitors, seq: 0, version, watch: Watch::default() },
     });
     let clip_conn = conn.clone();
     let clip_tx = tx.clone();
@@ -286,8 +358,14 @@ async fn serve_client(link: Link, tx: mpsc::UnboundedSender<Msg>, dir: PathBuf, 
         }
     });
     while let Ok(message) = mousex_core::proto::read_known(&mut control_rx).await {
-        if let Control::Hello { monitors, .. } = message {
-            let _ = tx.send(Msg::Monitors { machine: machine.clone(), id, monitors });
+        match message {
+            Control::Hello { monitors, .. } => {
+                let _ = tx.send(Msg::Monitors { machine: machine.clone(), id, monitors });
+            }
+            Control::Pong { n, motion } => {
+                let _ = tx.send(Msg::Pong { machine: machine.clone(), id, n, motion });
+            }
+            _ => {}
         }
     }
     clip_task.abort();
@@ -374,6 +452,8 @@ struct State {
     /// Movimentos e teclas repassados ao remoto desde o último relógio (rastro no log).
     remote_moves: u32,
     remote_keys: u32,
+    /// Ids nativos das telas que cada computador informou da última vez, guardados mesmo desconectado.
+    reported: HashMap<String, Vec<String>>,
 }
 
 impl State {
@@ -400,6 +480,7 @@ impl State {
             session_locked: false,
             remote_moves: 0,
             remote_keys: 0,
+            reported: HashMap::new(),
         }
     }
 
@@ -407,6 +488,7 @@ impl State {
         match message {
             Msg::Input(event) => self.input(event),
             Msg::Connected { machine, client } => {
+                self.reported.insert(machine.clone(), client.ids.clone());
                 if let Some(previous) = self.clients.insert(machine, client) {
                     previous.conn.close(0u32.into(), b"new connection for this device");
                 }
@@ -414,11 +496,22 @@ impl State {
             }
             Msg::Monitors { machine, id, monitors } => {
                 if let Some(client) = self.clients.get_mut(&machine).filter(|c| c.conn.stable_id() == id) {
-                    client.ids = monitors.iter().map(|m| m.id.clone()).collect();
+                    let ids: Vec<String> = monitors.iter().map(|m| m.id.clone()).collect();
+                    if ids != client.ids {
+                        log(&format!("{machine}: screens now {}", ids.join(", ")));
+                    }
+                    self.reported.insert(machine.clone(), ids.clone());
+                    client.ids = ids;
                     client.monitors = monitors;
                 }
                 self.rebuild_layout();
             }
+            Msg::Pong { machine, id, n, motion } => {
+                if let Some(client) = self.clients.get_mut(&machine).filter(|c| c.conn.stable_id() == id) {
+                    client.watch.pong(Instant::now(), n, motion);
+                }
+            }
+            Msg::Watch => self.watch_clients(),
             Msg::Disconnected { machine, id } => {
                 if self.clients.get(&machine).is_some_and(|c| c.conn.stable_id() == id) {
                     self.clients.remove(&machine);
@@ -658,12 +751,18 @@ impl State {
             }
             Action::Move { machine, monitor_id, local_x, local_y } => {
                 self.cursor = (monitor_id.clone(), local_x, local_y);
-                if let Some(client) = self.clients.get_mut(&machine)
-                    && let Some(index) = client.ids.iter().position(|id| id == native_id(&monitor_id))
-                {
-                    client.seq = client.seq.wrapping_add(1);
-                    let motion = Motion { seq: client.seq, monitor: index as u16, x: local_x, y: local_y };
-                    let _ = client.conn.send_datagram(motion.encode().to_vec().into());
+                if let Some(client) = self.clients.get_mut(&machine) {
+                    match client.ids.iter().position(|id| id == native_id(&monitor_id)) {
+                        Some(index) => {
+                            client.seq = client.seq.wrapping_add(1);
+                            let motion = Motion { seq: client.seq, monitor: index as u16, x: local_x, y: local_y };
+                            if client.conn.send_datagram(motion.encode().to_vec().into()).is_err() {
+                                client.watch.unsent += 1;
+                            }
+                        }
+                        // Tela que o cliente não informou: o movimento não tem onde cair, e o vigia conta.
+                        None => client.watch.unsent += 1,
+                    }
                 }
             }
             Action::Switch { from, to, monitor_id, local_x, local_y } => {
@@ -845,8 +944,9 @@ impl State {
     fn refresh_router(&mut self) {
         let connected = connected_view(&self.layout, &self.home, &self.connected_monitors());
         self.router.set_layout(connected, self.layout.clone());
-        // Layout completo, não só o das conectadas: a barreira de quem desconecta fica, e reconectar não mexe nela.
-        os::set_neighbors(&self.layout, &self.home);
+        // Telas que cada computador informou da última vez, conectado ou não: a barreira de quem desconecta fica,
+        // reconectar não mexe nela, e uma tela que ele não tem mais (monitor desligado dele) não deixa barreira.
+        os::set_neighbors(&barrier_view(&self.layout, &self.reported), &self.home);
         self.update_tray();
     }
 
@@ -885,6 +985,22 @@ impl State {
         }
         for client in self.clients.values() {
             client.send(Control::Activity);
+        }
+    }
+
+    /// Pinga os clientes e reconecta quem parou de receber ou aplicar a entrada: ele volta sozinho em ~1 s, sem
+    /// reiniciar o agente (no GNOME reiniciar pede de novo a permissão de capturar teclado e mouse).
+    fn watch_clients(&mut self) {
+        let now = Instant::now();
+        for (machine, client) in &mut self.clients {
+            if let Some(reason) = client.watch.stalled(now) {
+                log(&format!("{machine} {reason}; reconnecting it"));
+                client.watch = Watch::default();
+                client.conn.close(0u32.into(), b"sem resposta");
+                continue;
+            }
+            let n = client.watch.ping(client.seq);
+            client.send(Control::Ping { n });
         }
     }
 
@@ -927,6 +1043,14 @@ pub(crate) fn read_saved(path: &Path) -> ScreenLayout {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<ScreenLayout>(&bytes).ok())
         .unwrap_or(ScreenLayout { monitores: Vec::new() })
+}
+
+/// Layout das barreiras: a casa inteira e, de cada outro computador, só as telas do último Hello dele (todas as
+/// salvas enquanto ele ainda não se apresentou desde que o agente subiu).
+fn barrier_view(layout: &ScreenLayout, reported: &HashMap<String, Vec<String>>) -> ScreenLayout {
+    let mut view = layout.clone();
+    view.monitores.retain(|m| reported.get(&m.machine).is_none_or(|ids| ids.iter().any(|id| id == native_id(&m.id))));
+    view
 }
 
 pub(crate) fn save_layout(path: &Path, layout: &ScreenLayout) -> io::Result<()> {
@@ -975,6 +1099,62 @@ mod tests {
         assert!(memory.recent("fp", start + Duration::from_secs(60)));
         assert!(!memory.recent("fp", start + REJECTION_MEMORY + Duration::from_secs(1)));
         assert!(!memory.recent("outro", start));
+    }
+
+    #[test]
+    fn vigia_so_reconecta_quem_ja_respondeu_e_parou() {
+        let start = Instant::now();
+        let mut watch = Watch::default();
+        watch.ping(0);
+        assert_eq!(watch.stalled(start + Duration::from_secs(60)), None, "versão antiga nunca responde: sem vigia");
+        let n = watch.ping(10);
+        watch.pong(start, n, 10);
+        assert_eq!(watch.stalled(start + SILENCE - Duration::from_secs(1)), None);
+        assert!(watch.stalled(start + SILENCE).is_some_and(|reason| reason.starts_with("stopped answering")));
+    }
+
+    #[test]
+    fn vigia_nota_movimento_parado_em_duas_respostas_seguidas() {
+        let now = Instant::now();
+        let mut watch = Watch::default();
+        let n = watch.ping(500);
+        watch.pong(now, n, 300);
+        assert_eq!(watch.stalled(now), None, "uma resposta atrás pode ser só uma rajada");
+        let n = watch.ping(900);
+        watch.pong(now, n, 300);
+        assert_eq!(watch.stalled(now).as_deref(), Some("stopped applying the mouse motion"));
+        let n = watch.ping(900);
+        watch.pong(now, n, 905);
+        assert_eq!(watch.stalled(now), None, "aplicou até movimento enviado depois do ping");
+    }
+
+    #[test]
+    fn vigia_nota_movimento_que_nao_sai_ate_em_cliente_antigo() {
+        let now = Instant::now();
+        let mut watch = Watch { unsent: MOTION_LAG + 1, ..Watch::default() };
+        assert!(watch.stalled(now).is_some_and(|reason| reason.starts_with("is not getting the mouse motion")));
+        watch.ping(0);
+        assert_eq!(watch.stalled(now), None, "cada ping começa a conta de novo");
+    }
+
+    #[test]
+    fn barreira_so_nas_telas_que_o_outro_computador_ainda_tem() {
+        let screen = |machine: &str, native: &str, x: i32| mousex_core::Monitor {
+            id: format!("{machine}:{native}"),
+            machine: machine.into(),
+            x,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            scale_fator: 1.0,
+        };
+        let layout = ScreenLayout {
+            monitores: vec![screen("casa", "1", 0), screen("mac", "1", -1920), screen("mac", "4", 1920)],
+        };
+        let ids = |view: &ScreenLayout| view.monitores.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&barrier_view(&layout, &HashMap::new())), ["casa:1", "mac:1", "mac:4"], "antes do Hello");
+        let reported = HashMap::from([("mac".to_string(), vec!["1".to_string()])]);
+        assert_eq!(ids(&barrier_view(&layout, &reported)), ["casa:1", "mac:1"], "o monitor 4 saiu do Mac");
     }
 
     #[tokio::test]

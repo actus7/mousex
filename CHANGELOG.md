@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The main computer notices when another computer stops getting or applying the keyboard and mouse while the connection is still up, and reconnects it: it comes back by itself in about a second, with no agent restart (on GNOME a restart asks again to allow the capture). The main computer pings every 2 s; a computer that answered before and stays silent for 8 s, or answers twice with the mouse motion stuck behind what was sent, is reconnected. Motion that cannot be sent (the screen under the cursor is not among that computer's screens) also triggers it, even with computers on older versions, which do not answer the ping. The log says why ("… stopped answering for 8 s; reconnecting it") and when a computer's screens change.
+- Linux main computer: a screen the other computer no longer reports (an external monitor unplugged from it) no longer leaves a pointer barrier on the edge it was next to. The barriers follow the screens each computer reported the last time it connected, so reconnecting still does not move them.
+
 ## [1.5.6] - 2026-11-06
 
 ### Changed

@@ -67,6 +67,16 @@ pub enum Control {
     Server {
         machine: String,
     },
+    /// Servidor → cliente a cada poucos segundos: o cliente responde com `Pong` do loop que injeta.
+    /// Cliente antigo pula a variante (`read_known`) e nunca responde: o servidor não vigia quem não responde.
+    Ping {
+        n: u32,
+    },
+    /// Cliente → servidor: resposta ao `Ping` `n`, com a sequência do último movimento aplicado (0 se nenhum).
+    Pong {
+        n: u32,
+        motion: u32,
+    },
 }
 
 fn invalid(message: &str) -> io::Error {
@@ -167,6 +177,8 @@ mod tests {
             Control::Activity,
             Control::Lock,
             Control::Identify { screens: vec![("m1".into(), 1), ("m2".into(), 2)] },
+            Control::Ping { n: 7 },
+            Control::Pong { n: 7, motion: 42 },
         ]
     }
 
