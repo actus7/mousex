@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `mousex-agent --version` (and `-V`) now prints the version and exits. Before, it started a second agent with the same identity, which kept disconnecting the running one.
+
 ## [1.5.3] - 2026-10-30
 
 ### Fixed
