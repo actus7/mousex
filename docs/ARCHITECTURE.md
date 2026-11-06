@@ -117,7 +117,7 @@ Three channels carry traffic over one QUIC connection.
 
 Other QUIC settings: ALPN `mousex/1`, keepalive every 500 ms, and idle timeout of 1.5 s. A connection that stops answering is dropped, and the client starts reconnecting.
 
-The QUIC keepalive is answered by the network task, so a connection can stay up while the client applies nothing. The server sends `Ping` to every client every 2 s, and the client answers `Pong` from the loop that injects, with the sequence of the last motion it applied. A client that answered before and stays silent for 8 s, or answers twice with the motion more than 100 datagrams behind what was sent, is reconnected. So is one that the server could not send more than 100 moves to between two pings (the screen under the cursor is not in its `Hello`). Older clients skip `Ping` and are watched only for that last case.
+The QUIC keepalive is answered by the network task, so a connection can stay up while the client applies nothing. The server sends `Ping` to every client every 2 s, and the client answers `Pong` from the loop that injects, with the sequence of the last motion it applied. A client that answered before and stays silent for 8 s, or answers twice with the motion more than 100 datagrams behind what was sent while new motion was sent and the client applied none, is reconnected (lost datagrams while the mouse stands still do not count; if the server itself stalled for a few seconds, the wait starts over). So is one that the server could not send more than 100 moves to between two pings (the screen under the cursor is not in its `Hello`). Older clients skip `Ping` and are watched only for that last case.
 
 ### Control frames
 

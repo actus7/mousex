@@ -166,6 +166,11 @@ struct Watch {
     answered: Option<Instant>,
     /// Respostas seguidas com o movimento parado atrás do enviado.
     lagging: u8,
+    /// Movimento enviado até o ping anterior e movimento aplicado na resposta anterior: só há travamento se houve
+    /// movimento novo no intervalo e o cliente não andou. Sem isso, uma rajada de datagramas perdidos seguida do
+    /// usuário parar (ou voltar ao servidor) deixaria a diferença congelada e derrubaria um cliente saudável.
+    prev_sent: u32,
+    last_applied: Option<u32>,
     /// Movimentos para este cliente que não saíram desde o último ping (tela fora da lista dele, envio recusado).
     unsent: u32,
 }
@@ -173,6 +178,7 @@ struct Watch {
 impl Watch {
     /// Próximo ping, com a sequência do último movimento enviado; zera a conta do não enviado.
     fn ping(&mut self, sent: u32) -> u32 {
+        self.prev_sent = self.ping.1;
         self.ping = (self.ping.0.wrapping_add(1), sent);
         self.unsent = 0;
         self.ping.0
@@ -183,8 +189,17 @@ impl Watch {
         if n == self.ping.0 {
             // Com sinal: o cliente pode já ter aplicado movimento enviado depois do ping.
             let behind = self.ping.1.wrapping_sub(applied) as i32 > MOTION_LAG as i32;
-            self.lagging = if behind { self.lagging.saturating_add(1) } else { 0 };
+            let sent_moved = self.ping.1 != self.prev_sent;
+            let stuck = self.last_applied.is_none_or(|last| last == applied);
+            self.lagging = if behind && sent_moved && stuck { self.lagging.saturating_add(1) } else { 0 };
+            self.last_applied = Some(applied);
         }
+    }
+
+    /// O próprio servidor ficou parado: as respostas na fila ainda não foram contadas, então recomeça a espera.
+    fn rearm(&mut self, now: Instant) {
+        self.answered = self.answered.map(|_| now);
+        self.lagging = 0;
     }
 
     /// Por que reconectar o cliente, se ele parou de receber ou de aplicar a entrada.
@@ -254,6 +269,8 @@ pub async fn run(machine: String, identity: DeviceIdentity, dir: PathBuf) -> io:
     let watch_tx = tx.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(PING_INTERVAL);
+        // Sem isto, depois de uma parada longa os ticks perdidos saem em rajada.
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
             if watch_tx.send(Msg::Watch).is_err() {
@@ -454,6 +471,8 @@ struct State {
     remote_keys: u32,
     /// Ids nativos das telas que cada computador informou da última vez, guardados mesmo desconectado.
     reported: HashMap<String, Vec<String>>,
+    /// Último relógio do vigia: um intervalo muito maior que o ping é o servidor que parou, não o cliente.
+    last_watch: Instant,
 }
 
 impl State {
@@ -481,6 +500,7 @@ impl State {
             remote_moves: 0,
             remote_keys: 0,
             reported: HashMap::new(),
+            last_watch: Instant::now(),
         }
     }
 
@@ -992,8 +1012,12 @@ impl State {
     /// reiniciar o agente (no GNOME reiniciar pede de novo a permissão de capturar teclado e mouse).
     fn watch_clients(&mut self) {
         let now = Instant::now();
+        let server_paused = now.saturating_duration_since(self.last_watch) > PING_INTERVAL * 2;
+        self.last_watch = now;
         for (machine, client) in &mut self.clients {
-            if let Some(reason) = client.watch.stalled(now) {
+            if server_paused {
+                client.watch.rearm(now);
+            } else if let Some(reason) = client.watch.stalled(now) {
                 log(&format!("{machine} {reason}; reconnecting it"));
                 client.watch = Watch::default();
                 client.conn.close(0u32.into(), b"sem resposta");
@@ -1046,10 +1070,12 @@ pub(crate) fn read_saved(path: &Path) -> ScreenLayout {
 }
 
 /// Layout das barreiras: a casa inteira e, de cada outro computador, só as telas do último Hello dele (todas as
-/// salvas enquanto ele ainda não se apresentou desde que o agente subiu).
+/// salvas enquanto ele ainda não se apresentou desde que o agente subiu; um Hello sem telas é "sem informação").
 fn barrier_view(layout: &ScreenLayout, reported: &HashMap<String, Vec<String>>) -> ScreenLayout {
     let mut view = layout.clone();
-    view.monitores.retain(|m| reported.get(&m.machine).is_none_or(|ids| ids.iter().any(|id| id == native_id(&m.id))));
+    view.monitores.retain(|m| {
+        reported.get(&m.machine).is_none_or(|ids| ids.is_empty() || ids.iter().any(|id| id == native_id(&m.id)))
+    });
     view
 }
 
@@ -1129,6 +1155,50 @@ mod tests {
     }
 
     #[test]
+    fn vigia_nao_derruba_quem_perdeu_datagramas_e_o_usuario_parou() {
+        let now = Instant::now();
+        let mut watch = Watch::default();
+        // O cliente aplicou até 300 e os datagramas de 300 a 900 se perderam; depois ninguém mexe mais o mouse.
+        let n = watch.ping(300);
+        watch.pong(now, n, 300);
+        for _ in 0..5 {
+            let n = watch.ping(900);
+            watch.pong(now, n, 300);
+        }
+        assert_eq!(watch.stalled(now), None, "sem movimento novo no intervalo a diferença congelada não conta");
+    }
+
+    #[test]
+    fn vigia_nao_derruba_quem_ainda_aplica_mesmo_atrasado() {
+        let now = Instant::now();
+        let mut watch = Watch::default();
+        let (mut sent, mut applied) = (1000u32, 300u32);
+        for _ in 0..4 {
+            let n = watch.ping(sent);
+            watch.pong(now, n, applied);
+            sent += 200;
+            applied += 150;
+        }
+        assert_eq!(watch.stalled(now), None, "o movimento aplicado anda: está só atrás");
+    }
+
+    #[test]
+    fn vigia_recomeca_a_espera_quando_o_proprio_servidor_parou() {
+        let start = Instant::now();
+        let mut watch = Watch::default();
+        let n = watch.ping(0);
+        watch.pong(start, n, 0);
+        watch.lagging = 5;
+        let later = start + SILENCE * 3;
+        watch.rearm(later);
+        assert_eq!(watch.stalled(later), None);
+        assert!(watch.stalled(later + SILENCE).is_some(), "depois do rearme o silêncio volta a contar");
+        let mut never = Watch::default();
+        never.rearm(later);
+        assert_eq!(never.answered, None, "quem nunca respondeu continua sem vigia");
+    }
+
+    #[test]
     fn vigia_nota_movimento_que_nao_sai_ate_em_cliente_antigo() {
         let now = Instant::now();
         let mut watch = Watch { unsent: MOTION_LAG + 1, ..Watch::default() };
@@ -1155,6 +1225,8 @@ mod tests {
         assert_eq!(ids(&barrier_view(&layout, &HashMap::new())), ["casa:1", "mac:1", "mac:4"], "antes do Hello");
         let reported = HashMap::from([("mac".to_string(), vec!["1".to_string()])]);
         assert_eq!(ids(&barrier_view(&layout, &reported)), ["casa:1", "mac:1"], "o monitor 4 saiu do Mac");
+        let empty = HashMap::from([("mac".to_string(), Vec::new())]);
+        assert_eq!(ids(&barrier_view(&layout, &empty)), ["casa:1", "mac:1", "mac:4"], "Hello sem telas não apaga nada");
     }
 
     #[tokio::test]
