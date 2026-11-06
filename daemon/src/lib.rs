@@ -1,11 +1,11 @@
 mod activity;
 #[cfg(target_os = "linux")]
 mod arrange;
+#[cfg(not(windows))]
+mod cli_path;
 pub(crate) mod client;
 #[cfg(not(windows))]
 pub(crate) mod client_install;
-#[cfg(not(windows))]
-mod cli_path;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod client_tray;
 pub(crate) mod clip;
