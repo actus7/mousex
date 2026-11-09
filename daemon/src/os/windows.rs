@@ -52,6 +52,9 @@ pub fn home_monitors() -> Vec<mousex_core::proto::MonitorInfo> {
 /// Windows watches every edge with the mouse hook; there are no barriers to move.
 pub fn set_neighbors(_layout: &mousex_core::ScreenLayout, _home: &str) {}
 
+/// The hooks never hold the input on their own: nothing to give back if the loop stops.
+pub fn server_alive() {}
+
 pub fn set_tray_status(status: TrayStatus) {
     mousex_native::set_tray_status(status);
 }

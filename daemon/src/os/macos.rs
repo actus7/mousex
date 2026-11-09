@@ -201,6 +201,9 @@ pub fn home_monitors() -> Vec<MonitorInfo> {
 /// No Mac nenhuma barreira precisa de ajuste: a captura vê todas as bordas, como no Windows.
 pub fn set_neighbors(_layout: &mousex_core::ScreenLayout, _home: &str) {}
 
+/// Batida do loop do servidor: só o Linux usa (a captura devolve teclado e mouse se ela parar).
+pub fn server_alive() {}
+
 pub fn set_tray_status(status: TrayStatus) {
     if let Ok(mut last) = STATUS.lock() {
         *last = Some(status);

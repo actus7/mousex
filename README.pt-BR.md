@@ -211,7 +211,7 @@ O MouseX faz uma coisa só: uma mesa pessoal com algumas máquinas Windows, Mac 
 
 As células com **–** não são afirmações em nenhum sentido. Consulte a documentação de cada projeto para detalhes.
 
-**Limitações de hoje:** o Mac só pode ser cliente, um computador principal Linux precisa de sessão Wayland (não X11), o suporte a Wayland é experimental, e não dá para arrastar e soltar arquivos entre máquinas (copiar e colar funciona). Esses itens estão no [roadmap](#roadmap).
+**Limitações de hoje:** o Mac só pode ser cliente, um computador principal Linux precisa de sessão Wayland (não X11), o suporte a Wayland é experimental, e não dá para arrastar e soltar arquivos entre máquinas (copiar e colar funciona): com um botão do mouse pressionado, o cursor fica no computador onde você apertou. Esses itens estão no [roadmap](#roadmap).
 
 ## Segurança
 

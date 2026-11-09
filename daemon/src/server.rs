@@ -490,8 +490,6 @@ struct State {
     /// Movimentos e teclas repassados ao remoto desde o último relógio (rastro no log).
     remote_moves: u32,
     remote_keys: u32,
-    /// Ids nativos das telas que cada computador informou da última vez, guardados mesmo desconectado.
-    reported: HashMap<String, Vec<String>>,
     /// Último relógio do vigia: um intervalo muito maior que o ping é o servidor que parou, não o cliente.
     last_watch: Instant,
     /// Limita a linha "barrier at …": uma por movimento do mouse enchia o log e apagava o histórico em ~1 h.
@@ -522,7 +520,6 @@ impl State {
             session_locked: false,
             remote_moves: 0,
             remote_keys: 0,
-            reported: HashMap::new(),
             last_watch: Instant::now(),
             barrier_log: LogThrottle::default(),
         }
@@ -532,7 +529,6 @@ impl State {
         match message {
             Msg::Input(event) => self.input(event),
             Msg::Connected { machine, client } => {
-                self.reported.insert(machine.clone(), client.ids.clone());
                 if let Some(previous) = self.clients.insert(machine, client) {
                     previous.conn.close(0u32.into(), b"new connection for this device");
                 }
@@ -544,7 +540,6 @@ impl State {
                     if ids != client.ids {
                         log(&format!("{machine}: screens now {}", ids.join(", ")));
                     }
-                    self.reported.insert(machine.clone(), ids.clone());
                     client.ids = ids;
                     client.monitors = monitors;
                 }
@@ -717,6 +712,7 @@ impl State {
                 log("desktop switch: key state cleared");
                 self.held.clear();
                 self.held_buttons.clear();
+                self.router.set_held(false);
                 let action = self.router.force_home();
                 self.apply(action);
             }
@@ -726,6 +722,8 @@ impl State {
                 } else {
                     self.held_buttons.remove(&button);
                 }
+                // Arrastando, o cursor fica no computador onde o botão desceu até ele subir.
+                self.router.set_held(!self.held_buttons.is_empty());
                 let (monitor_id, x, y) = self.cursor.clone();
                 if let Some(client) = self.focused() {
                     client.send(Control::Button {
@@ -818,6 +816,10 @@ impl State {
                 self.deliver_relay(&to);
             }
             Action::ReturnHome { global_x, global_y } => {
+                // Volta forçada (atalho, queda do cliente): no Linux e no Mac o button-up depois de soltar a captura
+                // não chega aqui, e um botão lembrado como pressionado barraria toda entrada seguinte.
+                self.held_buttons.clear();
+                self.router.set_held(false);
                 if let Some(previous) = self.remote.take() {
                     self.pull_seq = platform::clipboard_seq();
                     self.leave(&previous);
@@ -991,9 +993,10 @@ impl State {
     fn refresh_router(&mut self) {
         let connected = connected_view(&self.layout, &self.home, &self.connected_monitors());
         self.router.set_layout(connected, self.layout.clone());
-        // Telas que cada computador informou da última vez, conectado ou não: a barreira de quem desconecta fica,
-        // reconectar não mexe nela, e uma tela que ele não tem mais (monitor desligado dele) não deixa barreira.
-        os::set_neighbors(&barrier_view(&self.layout, &self.reported), &self.home);
+        // Layout completo, não só o das conectadas: a barreira de quem desconecta fica, e reconectar não mexe nela.
+        // Trocar barreira logo depois de ligar a captura derrubou o gnome-shell 46 (SIGSEGV): nada de troca a cada
+        // Hello; ela só acontece quando o layout muda de verdade (lado, editor).
+        os::set_neighbors(&self.layout, &self.home);
         self.update_tray();
     }
 
@@ -1038,6 +1041,8 @@ impl State {
     /// Pinga os clientes e reconecta quem parou de receber ou aplicar a entrada: ele volta sozinho em ~1 s, sem
     /// reiniciar o agente (no GNOME reiniciar pede de novo a permissão de capturar teclado e mouse).
     fn watch_clients(&mut self) {
+        // No Linux, se este loop parar com o cursor fora, a captura devolve teclado e mouse ao desktop.
+        os::server_alive();
         let now = Instant::now();
         let server_paused = now.saturating_duration_since(self.last_watch) > PING_INTERVAL * 2;
         self.last_watch = now;
@@ -1094,16 +1099,6 @@ pub(crate) fn read_saved(path: &Path) -> ScreenLayout {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<ScreenLayout>(&bytes).ok())
         .unwrap_or(ScreenLayout { monitores: Vec::new() })
-}
-
-/// Layout das barreiras: a casa inteira e, de cada outro computador, só as telas do último Hello dele (todas as
-/// salvas enquanto ele ainda não se apresentou desde que o agente subiu; um Hello sem telas é "sem informação").
-fn barrier_view(layout: &ScreenLayout, reported: &HashMap<String, Vec<String>>) -> ScreenLayout {
-    let mut view = layout.clone();
-    view.monitores.retain(|m| {
-        reported.get(&m.machine).is_none_or(|ids| ids.is_empty() || ids.iter().any(|id| id == native_id(&m.id)))
-    });
-    view
 }
 
 pub(crate) fn save_layout(path: &Path, layout: &ScreenLayout) -> io::Result<()> {
@@ -1244,28 +1239,6 @@ mod tests {
         assert!(watch.stalled(now).is_some_and(|reason| reason.starts_with("is not getting the mouse motion")));
         watch.ping(0);
         assert_eq!(watch.stalled(now), None, "cada ping começa a conta de novo");
-    }
-
-    #[test]
-    fn barreira_so_nas_telas_que_o_outro_computador_ainda_tem() {
-        let screen = |machine: &str, native: &str, x: i32| mousex_core::Monitor {
-            id: format!("{machine}:{native}"),
-            machine: machine.into(),
-            x,
-            y: 0,
-            width: 1920,
-            height: 1080,
-            scale_fator: 1.0,
-        };
-        let layout = ScreenLayout {
-            monitores: vec![screen("casa", "1", 0), screen("mac", "1", -1920), screen("mac", "4", 1920)],
-        };
-        let ids = |view: &ScreenLayout| view.monitores.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
-        assert_eq!(ids(&barrier_view(&layout, &HashMap::new())), ["casa:1", "mac:1", "mac:4"], "antes do Hello");
-        let reported = HashMap::from([("mac".to_string(), vec!["1".to_string()])]);
-        assert_eq!(ids(&barrier_view(&layout, &reported)), ["casa:1", "mac:1"], "o monitor 4 saiu do Mac");
-        let empty = HashMap::from([("mac".to_string(), Vec::new())]);
-        assert_eq!(ids(&barrier_view(&layout, &empty)), ["casa:1", "mac:1", "mac:4"], "Hello sem telas não apaga nada");
     }
 
     #[tokio::test]

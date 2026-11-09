@@ -211,7 +211,7 @@ MouseX is built for one job: a personal desk with a few Windows, Mac and Linux m
 
 Cells marked **–** are not claims either way. Check each project's documentation for details.
 
-**Limitations today:** a Mac can only be a client, a Linux main computer needs a Wayland session (not X11), Wayland support is experimental, and you cannot drag and drop files between machines (copy and paste works). These are on the [roadmap](#roadmap).
+**Limitations today:** a Mac can only be a client, a Linux main computer needs a Wayland session (not X11), Wayland support is experimental, and you cannot drag and drop files between machines (copy and paste works): while a mouse button is held, the cursor stays on the computer where you pressed it. These are on the [roadmap](#roadmap).
 
 ## Security
 

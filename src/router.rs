@@ -57,6 +57,9 @@ pub struct Router {
     pos: Point,
     /// Cursor preso na tela atual (jogos, apps em tela cheia): bordas não trocam de máquina.
     locked: bool,
+    /// Botão do mouse pressionado (arrastando): também não troca de máquina até soltar. Arrastar entre
+    /// computadores não existe, e sair no meio do arrasto deixava o botão "preso" no servidor.
+    held: bool,
 }
 
 impl Router {
@@ -68,6 +71,7 @@ impl Router {
             focus: Focus::Home,
             pos: Point { x: 0.0, y: 0.0 },
             locked: false,
+            held: false,
         }
     }
 
@@ -86,6 +90,15 @@ impl Router {
 
     pub fn locked(&self) -> bool {
         self.locked
+    }
+
+    pub fn set_held(&mut self, held: bool) {
+        self.held = held;
+    }
+
+    /// As bordas não trocam de máquina: cursor preso pelo usuário ou botão pressionado.
+    fn pinned(&self) -> bool {
+        self.locked || self.held
     }
 
     /// Leva o cursor ao centro do primeiro monitor de `machine` (atalho de teclado).
@@ -117,7 +130,7 @@ impl Router {
 
     /// Cursor local em casa: só a borda de um monitor da casa pode iniciar transição.
     pub fn on_home_cursor(&mut self, global_x: i32, global_y: i32) -> Action {
-        if self.focus != Focus::Home || self.locked {
+        if self.focus != Focus::Home || self.pinned() {
             return Action::None;
         }
         let (raw_x, raw_y) = (global_x as f64, global_y as f64);
@@ -180,7 +193,7 @@ impl Router {
         };
         match self.route(point, direction, &machine) {
             // Preso: só passa para outro monitor da mesma máquina.
-            Some((t, bridged)) if t.machine == self.home && !self.locked => {
+            Some((t, bridged)) if t.machine == self.home && !self.pinned() => {
                 self.focus = Focus::Home;
                 // Um pixel para dentro: o pixel da borda é o gatilho de entrada e faria o cursor quicar de volta.
                 let inward = match direction {
@@ -194,7 +207,7 @@ impl Router {
                 let (global_x, global_y) = floor(if landing { inward } else { t.global });
                 Action::ReturnHome { global_x, global_y }
             }
-            Some((t, _)) if !self.locked || t.machine == machine => {
+            Some((t, _)) if !self.pinned() || t.machine == machine => {
                 self.pos = t.global;
                 self.focus = Focus::Remote { machine: t.machine.clone(), monitor_id: t.monitor_id.clone() };
                 let (local_x, local_y) = floor(t.local);
@@ -411,6 +424,20 @@ mod tests {
         assert!(matches!(r.on_delta(-900, 0), Action::Move { ref machine, .. } if machine == "win2"));
         r.set_locked(false);
         assert!(matches!(r.on_delta(-900, 0), Action::ReturnHome { .. }));
+    }
+
+    #[test]
+    fn arrastando_nao_sai_do_computador_ate_soltar_o_botao() {
+        let mut r = entered_win2();
+        r.set_held(true);
+        assert!(
+            matches!(r.on_delta(-900, 0), Action::Move { ref machine, .. } if machine == "win2"),
+            "o botão segue pressionado: fica no remoto"
+        );
+        r.set_held(false);
+        assert!(matches!(r.on_delta(-900, 0), Action::ReturnHome { .. }));
+        r.set_held(true);
+        assert_eq!(r.on_home_cursor(1919, 500), Action::None, "nem entra arrastando");
     }
 
     #[test]
