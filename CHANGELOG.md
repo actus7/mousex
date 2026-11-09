@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-11-09
+
 ### Fixed
 
 - Linux main computer: allowing the input capture could crash gnome-shell 46 (SIGSEGV) and end the session, back to the login screen. The pointer barriers changed right after the capture was enabled, as soon as the other computer reported its screens. The barriers follow the saved layout again, so connecting changes nothing; a layout change waits until the capture has been enabled for 3 s, and an empty barrier list is never sent (the capture is disabled instead).
@@ -225,7 +227,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.7...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.8...HEAD
+[1.5.8]: https://github.com/actus7/mousex/compare/v1.5.7...v1.5.8
 [1.5.7]: https://github.com/actus7/mousex/compare/v1.5.6...v1.5.7
 [1.5.6]: https://github.com/actus7/mousex/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/actus7/mousex/compare/v1.5.4...v1.5.5
