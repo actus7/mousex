@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Linux main computer: allowing the input capture could crash gnome-shell 46 (SIGSEGV) and end the session, back to the login screen. The pointer barriers changed right after the capture was enabled, as soon as the other computer reported its screens. The barriers follow the saved layout again, so connecting changes nothing; a layout change waits until the capture has been enabled for 3 s, and an empty barrier list is never sent (the capture is disabled instead).
+- Dragging a file from another computer towards the main computer no longer stops MouseX from crossing. While a mouse button is held, the cursor stays on the computer where the button went down, as it already did on the way in. Before, the cursor came back with the button held, the server never saw it released, and every later crossing was refused until a restart.
 - Linux main computer: the keyboard and mouse can no longer be left captured with nobody forwarding them, which needed a hard reset. If, after an edge hit, the agent does not take it or no input arrives within 3 s, or the agent's loop stops for 6 s with the cursor on another computer, they go back to the desktop; every portal call there has a 3 s deadline, after which the agent restarts and the desktop gets them back.
 
 ## [1.5.7] - 2026-11-09

@@ -712,6 +712,7 @@ impl State {
                 log("desktop switch: key state cleared");
                 self.held.clear();
                 self.held_buttons.clear();
+                self.router.set_held(false);
                 let action = self.router.force_home();
                 self.apply(action);
             }
@@ -721,6 +722,8 @@ impl State {
                 } else {
                     self.held_buttons.remove(&button);
                 }
+                // Arrastando, o cursor fica no computador onde o botão desceu até ele subir.
+                self.router.set_held(!self.held_buttons.is_empty());
                 let (monitor_id, x, y) = self.cursor.clone();
                 if let Some(client) = self.focused() {
                     client.send(Control::Button {
@@ -813,6 +816,10 @@ impl State {
                 self.deliver_relay(&to);
             }
             Action::ReturnHome { global_x, global_y } => {
+                // Volta forçada (atalho, queda do cliente): no Linux e no Mac o button-up depois de soltar a captura
+                // não chega aqui, e um botão lembrado como pressionado barraria toda entrada seguinte.
+                self.held_buttons.clear();
+                self.router.set_held(false);
                 if let Some(previous) = self.remote.take() {
                     self.pull_seq = platform::clipboard_seq();
                     self.leave(&previous);
