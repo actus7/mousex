@@ -3,6 +3,8 @@
 //! Only edges that touch another computer's screen get a barrier; the rest stay the desktop's (a dock
 //! that hides at the bottom, hot corners). GNOME 46 takes no new barriers while the session is enabled,
 //! so a layout change disables it, replaces the barriers and enables it again, in the same session.
+//! While the capture is active the desktop sends every key and motion here only: whatever stalls (the portal,
+//! libei, the agent's loop) has a deadline, after which the keyboard and mouse go back to the desktop.
 use super::other;
 use ashpd::desktop::{
     PersistMode,
@@ -93,11 +95,21 @@ enum Cmd {
     Release(Option<(i32, i32)>),
     /// The other computers' screens moved: barriers follow them.
     Neighbors(Vec<Area>),
+    /// The agent's loop is running (every few seconds).
+    Alive,
 }
 
 static COMMANDS: OnceLock<tokio_mpsc::UnboundedSender<Cmd>> = OnceLock::new();
 /// Set when a barrier hit is waiting for the server to hold or release it.
 static PENDING: AtomicBool = AtomicBool::new(false);
+/// Portal calls with the capture possibly active: past this the desktop is not answering.
+const PORTAL_TIMEOUT: Duration = Duration::from_secs(3);
+/// After an edge hit the server must take it, and input must start flowing, within this time.
+const ACTIVATION_GRACE: Duration = Duration::from_secs(3);
+/// With the cursor on another computer, the agent's loop must show it is alive this often.
+const SERVER_SILENCE: Duration = Duration::from_secs(6);
+/// gnome-shell 46 crashed (SIGSEGV) when the barriers changed right after the capture was enabled.
+const SETTLE: Duration = Duration::from_secs(3);
 
 /// `neighbors`: the other computers' screens. Only edges that touch one get a barrier.
 pub fn start_server_capture(token_file: PathBuf, neighbors: Vec<Area>) -> io::Result<ServerCapture> {
@@ -154,6 +166,11 @@ pub fn set_neighbors(neighbors: Vec<Area>) {
     command(Cmd::Neighbors(neighbors));
 }
 
+/// The agent's loop is running: without this, with the cursor away, the keyboard and mouse go back home.
+pub fn server_alive() {
+    command(Cmd::Alive);
+}
+
 fn command(cmd: Cmd) {
     if let Some(sender) = COMMANDS.get() {
         let _ = sender.send(cmd);
@@ -191,7 +208,13 @@ async fn run(
         return Err(error.into());
     }
     let mut wanted = wanted_barriers(&zones, &neighbors);
-    let mut armed = arm_barriers(&portal, &session, &wanted, zones_reply.zone_set()).await?;
+    // No barrier list at all when no other computer touches these screens (gnome-shell 46 crashed on an empty
+    // one): the capture stays off until a neighbor shows up.
+    let mut armed = if wanted.is_empty() {
+        HashMap::new()
+    } else {
+        arm_barriers(&portal, &session, &wanted, zones_reply.zone_set()).await?
+    };
     note(&events, &format!("pointer barriers on {} screen edge(s)", armed.len()));
     let fd = portal.connect_to_eis(&session, Default::default()).await?;
     let context = ei::Context::new(std::os::unix::net::UnixStream::from(fd))?;
@@ -199,11 +222,14 @@ async fn run(
         context.handshake_tokio("MouseX", ei::handshake::ContextType::Receiver).await?;
     let _ = ready.send(Ok(zones.clone()));
     note(&events, "input capture session open; the desktop may ask to allow capturing the keyboard and mouse");
-    if let Err(error) = portal.enable(&session, Default::default()).await {
-        note(&events, &format!("input capture was not allowed: {error}"));
-        return Err(error.into());
+    if !armed.is_empty() {
+        if let Err(error) = portal.enable(&session, Default::default()).await {
+            note(&events, &format!("input capture was not allowed: {error}"));
+            return Err(error.into());
+        }
+        note(&events, "input capture enabled");
     }
-    note(&events, "input capture enabled");
+    let mut enabled_at = tokio::time::Instant::now();
 
     let mut activated_stream = portal.receive_activated().await?;
     let mut deactivated = portal.receive_deactivated().await?;
@@ -227,14 +253,21 @@ async fn run(
     let mut activation: Option<u32> = None;
     let mut fallback_release: Option<(i32, i32)> = None;
     let mut holding = false;
-    // New neighbors that arrived while the cursor was away: barriers move once it is back.
+    // New neighbors: the barriers move once the cursor is home and the capture has settled.
     let mut waiting: Option<Vec<Area>> = None;
     // Disabling to move barriers may come back as a Disabled signal: not a reason to restart.
     let mut quiet_until: Option<tokio::time::Instant> = None;
+    // Edge hit not yet confirmed by input forwarded to the server, and whether input arrived since it.
+    let mut activated_at: Option<tokio::time::Instant> = None;
+    let mut input_seen = false;
+    let mut alive_at = tokio::time::Instant::now();
+    let mut check = tokio::time::interval(Duration::from_millis(500));
+    check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
             Some(_) = deactivated.next() => {
+                activated_at = None;
                 // After our own Release `holding` and `activation` are already clear. Coming from the desktop
                 // with the cursor away, the server must come home, or it keeps waiting for motion that never comes.
                 if holding || activation.is_some() {
@@ -264,6 +297,8 @@ async fn run(
                     continue;
                 }
                 activation = hit.activation_id();
+                activated_at = Some(tokio::time::Instant::now());
+                input_seen = false;
                 let cursor = hit.cursor_position().unwrap_or((0.0, 0.0));
                 let armed_edge = match hit.barrier_id() {
                     Some(ashpd::desktop::input_capture::ActivatedBarrier::Barrier(id)) => armed.get(&id.get()),
@@ -279,46 +314,67 @@ async fn run(
             Some(cmd) = commands.recv() => {
                 match cmd {
                     // The desktop may have ended the capture already (Deactivated): nothing left to hold.
-                    Cmd::Hold => holding = activation.is_some(),
+                    Cmd::Hold => {
+                        holding = activation.is_some();
+                        // Input already arrived since the hit, before the server took it: libei is delivering.
+                        if holding && input_seen {
+                            activated_at = None;
+                        }
+                    }
+                    Cmd::Alive => alive_at = tokio::time::Instant::now(),
                     Cmd::Release(place) => {
                         holding = false;
+                        activated_at = None;
                         let point = place.map(|point| away_from_edges(&zones, point)).or(fallback_release);
                         if let Some(id) = activation.take() {
-                            let mut options = ReleaseOptions::default().set_activation_id(Some(id));
-                            if let Some((x, y)) = point {
-                                options = options.set_cursor_position(Some((f64::from(x), f64::from(y))));
+                            if let Err(reason) = give_back(&events, &portal, &session, id, point).await {
+                                restart(&events, &format!("{reason}; restarting"));
                             }
-                            if let Err(error) = portal.release(&session, options).await {
-                                note(&events, &format!("failed to release the pointer: {error}"));
-                            }
-                            tokio::time::sleep(Duration::from_millis(200)).await;
-                            if let Err(error) = portal.enable(&session, Default::default()).await {
-                                restart(&events, &format!("failed to re-enable input capture: {error}; restarting"));
-                            }
-                        }
-                        if let Some(next) = waiting.take() {
-                            command(Cmd::Neighbors(next));
+                            enabled_at = tokio::time::Instant::now();
                         }
                     }
                     Cmd::Neighbors(next) => {
                         let next_wanted = wanted_barriers(&zones, &next);
-                        if same_edges(&next_wanted, &wanted) {
-                            waiting = None;
-                        } else if holding || activation.is_some() {
-                            waiting = Some(next);
-                        } else {
-                            quiet_until = Some(tokio::time::Instant::now() + Duration::from_secs(2));
-                            match rearm(&portal, &session, &next_wanted, zones_reply.zone_set()).await {
-                                Ok(now) => {
-                                    armed = now;
-                                    wanted = next_wanted;
-                                    note(&events, &format!("pointer barriers moved: {} screen edge(s)", armed.len()));
-                                }
-                                Err(error) => {
-                                    restart(&events, &format!("could not move the pointer barriers: {error}; restarting"));
-                                }
-                            }
+                        waiting = if same_edges(&next_wanted, &wanted) { None } else { Some(next) };
+                    }
+                }
+            }
+            _ = check.tick() => {
+                let now = tokio::time::Instant::now();
+                let since_hit = activated_at.map(|at| now.duration_since(at));
+                let active = holding || activation.is_some();
+                if let Some(reason) = stuck(since_hit, holding, active, now.duration_since(alive_at)) {
+                    // Captured with nobody forwarding: the whole desktop would be without keyboard and mouse.
+                    note(&events, &format!("{reason}; giving the keyboard and mouse back to this computer"));
+                    holding = false;
+                    activated_at = None;
+                    PENDING.store(false, Ordering::Release);
+                    if let Some(id) = activation.take() {
+                        if let Err(reason) = give_back(&events, &portal, &session, id, fallback_release).await {
+                            restart(&events, &format!("{reason}; restarting"));
                         }
+                        enabled_at = tokio::time::Instant::now();
+                    }
+                    let _ = events.send(Captured::Released);
+                } else if !holding
+                    && activation.is_none()
+                    && now.duration_since(enabled_at) >= SETTLE
+                    && let Some(next) = waiting.take()
+                {
+                    let next_wanted = wanted_barriers(&zones, &next);
+                    quiet_until = Some(now + Duration::from_secs(2));
+                    let moved = rearm(&portal, &session, &next_wanted, zones_reply.zone_set());
+                    match tokio::time::timeout(PORTAL_TIMEOUT, moved).await {
+                        Ok(Ok(now_armed)) => {
+                            armed = now_armed;
+                            wanted = next_wanted;
+                            enabled_at = tokio::time::Instant::now();
+                            note(&events, &format!("pointer barriers moved: {} screen edge(s)", armed.len()));
+                        }
+                        Ok(Err(error)) => {
+                            restart(&events, &format!("could not move the pointer barriers: {error}; restarting"));
+                        }
+                        Err(_) => restart(&events, "the desktop did not answer while moving the pointer barriers; restarting"),
                     }
                 }
             }
@@ -326,6 +382,13 @@ async fn run(
             event = ei_events.next() => {
                 match event {
                     Some(Ok(event)) => {
+                        if is_input(&event) {
+                            input_seen = true;
+                            if holding {
+                                // Input reaches the server: the edge hit is confirmed.
+                                activated_at = None;
+                            }
+                        }
                         if let Err(error) = on_ei(&mut connection, &events, event, holding, &mut fraction) {
                             restart(&events, &format!("libei: {error}; restarting"));
                         }
@@ -347,6 +410,58 @@ fn restart(events: &std::sync::mpsc::Sender<Captured>, line: &str) -> ! {
     note(events, line);
     std::thread::sleep(Duration::from_millis(200));
     std::process::exit(1);
+}
+
+/// Gives the pointer back to the desktop and enables the capture again. Each call has a deadline: a desktop that
+/// does not answer would keep the keyboard and mouse captured with nobody forwarding them. On `Err` the caller
+/// restarts; the session ends with the process and the desktop gets its input back.
+async fn give_back(
+    events: &std::sync::mpsc::Sender<Captured>,
+    portal: &InputCapture,
+    session: &ashpd::desktop::Session<InputCapture>,
+    activation: u32,
+    point: Option<(i32, i32)>,
+) -> Result<(), String> {
+    let mut options = ReleaseOptions::default().set_activation_id(Some(activation));
+    if let Some((x, y)) = point {
+        options = options.set_cursor_position(Some((f64::from(x), f64::from(y))));
+    }
+    match tokio::time::timeout(PORTAL_TIMEOUT, portal.release(session, options)).await {
+        Err(_) => return Err("the desktop did not answer the release of the pointer".into()),
+        Ok(Err(error)) => note(events, &format!("failed to release the pointer: {error}")),
+        Ok(Ok(_)) => {}
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    match tokio::time::timeout(PORTAL_TIMEOUT, portal.enable(session, Default::default())).await {
+        Err(_) => Err("the desktop did not answer when enabling input capture again".into()),
+        Ok(Err(error)) => Err(format!("failed to re-enable input capture: {error}")),
+        Ok(Ok(_)) => Ok(()),
+    }
+}
+
+/// Why the keyboard and mouse must go back to the desktop now, if they must. `since_hit`: time since an edge
+/// hit that input has not confirmed yet; `active`: the desktop is capturing; `since_alive`: the agent's loop.
+fn stuck(since_hit: Option<Duration>, holding: bool, active: bool, since_alive: Duration) -> Option<&'static str> {
+    if since_hit.is_some_and(|elapsed| elapsed >= ACTIVATION_GRACE) {
+        Some(if holding { "no input arrived after the edge hit" } else { "the agent did not take the edge hit" })
+    } else if active && since_alive >= SERVER_SILENCE {
+        Some("the agent's loop stopped answering")
+    } else {
+        None
+    }
+}
+
+/// Something the user did on the keyboard or mouse: proof that the capture is delivering.
+fn is_input(event: &EiEvent) -> bool {
+    matches!(
+        event,
+        EiEvent::PointerMotion(_)
+            | EiEvent::PointerMotionAbsolute(_)
+            | EiEvent::Button(_)
+            | EiEvent::ScrollDelta(_)
+            | EiEvent::ScrollDiscrete(_)
+            | EiEvent::KeyboardKey(_)
+    )
 }
 
 async fn open_session(
@@ -473,6 +588,10 @@ async fn rearm(
     zone_set: u32,
 ) -> Result<HashMap<u32, Armed>, Box<dyn std::error::Error>> {
     portal.disable(session, Default::default()).await?;
+    if wanted.is_empty() {
+        // No list at all (gnome-shell 46 crashed on an empty one): disabled, the capture never activates.
+        return Ok(HashMap::new());
+    }
     let armed = arm_barriers(portal, session, wanted, zone_set).await?;
     portal.enable(session, Default::default()).await?;
     Ok(armed)
@@ -645,6 +764,17 @@ mod tests {
         let armed = screen();
         assert_eq!(outside_point(&armed, (1919.0, 400.0)), (1920, 400));
         assert_eq!(inward_point(&armed, (1919.0, 400.0)), (1917, 400));
+    }
+
+    #[test]
+    fn captura_sem_ninguem_repassando_devolve_teclado_e_mouse() {
+        let secs = Duration::from_secs;
+        assert_eq!(stuck(Some(secs(1)), false, true, secs(0)), None, "o servidor ainda pode assumir");
+        assert_eq!(stuck(Some(secs(3)), false, true, secs(0)), Some("the agent did not take the edge hit"));
+        assert_eq!(stuck(Some(secs(3)), true, true, secs(0)), Some("no input arrived after the edge hit"));
+        assert_eq!(stuck(None, true, true, secs(5)), None, "entrada confirmada e loop batendo");
+        assert_eq!(stuck(None, true, true, secs(6)), Some("the agent's loop stopped answering"));
+        assert_eq!(stuck(None, false, false, secs(600)), None, "cursor em casa: nada preso");
     }
 
     #[test]

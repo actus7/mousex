@@ -80,6 +80,11 @@ pub fn set_neighbors(layout: &ScreenLayout, home: &str) {
     mousex_platform_linux::set_neighbors(neighbors(layout, home));
 }
 
+/// Batida do loop do servidor: sem ela, com o cursor fora, a captura devolve teclado e mouse ao desktop.
+pub fn server_alive() {
+    mousex_platform_linux::server_alive();
+}
+
 pub fn set_suppress(on: bool) -> bool {
     if on { set_holding(true) } else { true }
 }
