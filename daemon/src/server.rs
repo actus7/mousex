@@ -157,6 +157,27 @@ impl Client {
     }
 }
 
+/// No máximo uma linha de log por `EVERY`; conta o que foi omitido para a próxima linha dizer quanto foi.
+#[derive(Default)]
+struct LogThrottle {
+    last: Option<Instant>,
+    omitted: u32,
+}
+
+impl LogThrottle {
+    const EVERY: Duration = Duration::from_secs(1);
+
+    /// `Some(n)`: pode logar agora, e `n` linhas foram omitidas desde a última; `None`: omite esta.
+    fn take(&mut self, now: Instant) -> Option<u32> {
+        if self.last.is_some_and(|last| now.saturating_duration_since(last) < Self::EVERY) {
+            self.omitted = self.omitted.saturating_add(1);
+            return None;
+        }
+        self.last = Some(now);
+        Some(std::mem::take(&mut self.omitted))
+    }
+}
+
 /// Vigia de um cliente: só a resposta do loop dele mostra que teclas e movimento estão sendo aplicados.
 #[derive(Default)]
 struct Watch {
@@ -473,6 +494,8 @@ struct State {
     reported: HashMap<String, Vec<String>>,
     /// Último relógio do vigia: um intervalo muito maior que o ping é o servidor que parou, não o cliente.
     last_watch: Instant,
+    /// Limita a linha "barrier at …": uma por movimento do mouse enchia o log e apagava o histórico em ~1 h.
+    barrier_log: LogThrottle,
 }
 
 impl State {
@@ -501,6 +524,7 @@ impl State {
             remote_keys: 0,
             reported: HashMap::new(),
             last_watch: Instant::now(),
+            barrier_log: LogThrottle::default(),
         }
     }
 
@@ -622,8 +646,11 @@ impl State {
             Event::Move { x, y } => {
                 if self.remote.is_none() {
                     let action = self.router.on_home_cursor(x, y);
-                    if matches!(action, Action::None) {
-                        log(&format!("barrier at {x},{y} stayed on this computer"));
+                    if matches!(action, Action::None)
+                        && let Some(omitted) = self.barrier_log.take(Instant::now())
+                    {
+                        let more = if omitted > 0 { format!(" (+{omitted} more)") } else { String::new() };
+                        log(&format!("barrier at {x},{y} stayed on this computer{more}"));
                     }
                     self.apply(action);
                     if self.remote.is_none() {
@@ -1152,6 +1179,18 @@ mod tests {
         let n = watch.ping(900);
         watch.pong(now, n, 905);
         assert_eq!(watch.stalled(now), None, "aplicou até movimento enviado depois do ping");
+    }
+
+    #[test]
+    fn log_de_barreira_sai_uma_vez_por_segundo_e_conta_o_que_omitiu() {
+        let start = Instant::now();
+        let mut throttle = LogThrottle::default();
+        assert_eq!(throttle.take(start), Some(0), "a primeira sempre sai");
+        for ms in [10, 200, 999] {
+            assert_eq!(throttle.take(start + Duration::from_millis(ms)), None);
+        }
+        assert_eq!(throttle.take(start + Duration::from_secs(1)), Some(3), "diz quantas ficaram de fora");
+        assert_eq!(throttle.take(start + Duration::from_secs(5)), Some(0), "sem omitidas, sem contagem");
     }
 
     #[test]

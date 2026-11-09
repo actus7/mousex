@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-11-09
+
+### Fixed
+
+- The main computer log no longer gets a "barrier at … stayed on this computer" line for every mouse move at the edge: at most one per second, with the number left out ("(+N more)"). That line was ~99% of the log, which rotates at 1 MB, so the history of disconnects and reconnects was lost in about an hour.
+
 ## [1.5.6] - 2026-11-06
 
 ### Fixed
@@ -213,7 +219,8 @@ First public release.
   and Windows reserved names, and a Windows data folder writable only by
   Administrators.
 
-[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.6...HEAD
+[Unreleased]: https://github.com/actus7/mousex/compare/v1.5.7...HEAD
+[1.5.7]: https://github.com/actus7/mousex/compare/v1.5.6...v1.5.7
 [1.5.6]: https://github.com/actus7/mousex/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/actus7/mousex/compare/v1.5.4...v1.5.5
 [1.5.4]: https://github.com/actus7/mousex/compare/v1.5.3...v1.5.4
